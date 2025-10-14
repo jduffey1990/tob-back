@@ -1,58 +1,96 @@
-//src/controllers/authServices.ts
-const Bcrypt = require('bcrypt');
+// src/controllers/authService.ts
+import bcrypt from 'bcrypt';
 import Jwt from '@hapi/jwt';
 import dotenv from 'dotenv';
-
-import { User } from '../models/user'; // Assuming you have a User type
 import { Request, ResponseToolkit } from '@hapi/hapi';
-import { DatabaseService } from './postgres.service'; 
-import { Db, ObjectId } from 'mongodb';
-import { UserService } from './userService';
+import { PostgresService } from './postgres.service';
+import { User, UserSafe } from '../models/user';
 
 dotenv.config();
-const jwtSecret = process.env.JWT_SECRET || ""
+const jwtSecret = process.env.JWT_SECRET || '';
+
+function rowToUserSafe(row: any): UserSafe {
+  return {
+    id: row.id,
+    companyId: row.company_id ?? null,
+    email: row.email,
+    name: row.name,
+    status: row.status,
+    deletedAt: row.deleted_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 export class AuthService {
-
+  /**
+   * Validate user credentials and issue a JWT on success.
+   */
   public static async validateUser(
-    request: Request,
-    username: string,
+    _request: Request,
+    email: string,
     password: string,
-    h: ResponseToolkit
-  ): Promise<{ isValid: boolean; credentials?: User; token?: string }> {
-    const db: Db = DatabaseService.getInstance().getDb();
+    _h: ResponseToolkit
+  ): Promise<{ isValid: boolean; credentials?: UserSafe; token?: string }> {
+    const db = PostgresService.getInstance();
 
-    // Grab the user by username
-    const user: User | null = await db.collection<User>('users').findOne({ username });
-    if (!user) {
-      return { isValid: false };
-    }
+    // Load the user by email (case-insensitive), include password_hash for verification
+    const { rows } = await db.query(
+      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
+         FROM users
+        WHERE LOWER(email) = LOWER($1)
+        LIMIT 1`,
+      [email]
+    );
 
-    const match = await Bcrypt.compare(password, user.password);
-    if (match) {
-      // Generate JWT
-      const token = Jwt.token.generate(
-        { id: user._id.toString(), username: user.username },
-        jwtSecret // 🔑 Use our secret key
-      );
+    const row = rows[0];
+    if (!row) return { isValid: false };
 
-      return { isValid: true, credentials: user, token };
-    }
+    const passwordOk = await bcrypt.compare(password, row.password_hash);
+    if (!passwordOk) return { isValid: false };
 
-    return { isValid: false };
-  }
-  
-  public static async validateToken(decoded: any, request: Request, h: ResponseToolkit) {
-    const { id } = decoded.decoded.payload; // Use decoded.payload.id, not decoded.id
-  
-    const db: Db = DatabaseService.getInstance().getDb();
-    const user = await db.collection<User>('users').findOne({ _id: new ObjectId(id) });
-  
-    if (!user) {
-      return { isValid: false };
-    }
-  
-    return { isValid: true, credentials: user };
+    // Build a safe user object (exclude password_hash)
+    const safe = rowToUserSafe(row);
+
+    // Create JWT (keep payload minimal)
+    const token = Jwt.token.generate(
+      { id: safe.id, email: safe.email },
+      jwtSecret
+    );
+
+    return { isValid: true, credentials: safe, token };
   }
 
+  /**
+   * Validate a decoded JWT (Hapi @hapi/jwt validate hook).
+   * Accepts a few shapes for `decoded` depending on how Hapi passes artifacts.
+   */
+  public static async validateToken(
+    decoded: any,
+    _request: Request,
+    _h: ResponseToolkit
+  ): Promise<{ isValid: boolean; credentials?: UserSafe }> {
+    // Handle common shapes: decoded.payload OR decoded.decoded.payload OR decoded
+    const payload =
+      decoded?.decoded?.payload ??
+      decoded?.payload ??
+      decoded;
+
+    const userId = payload?.id as string | undefined;
+    if (!userId) return { isValid: false };
+
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query(
+      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+         FROM users
+        WHERE id = $1::uuid
+        LIMIT 1`,
+      [userId]
+    );
+
+    const row = rows[0];
+    if (!row) return { isValid: false };
+
+    return { isValid: true, credentials: rowToUserSafe(row) };
+  }
 }

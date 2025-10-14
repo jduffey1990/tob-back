@@ -1,64 +1,109 @@
 // users/src/controllers/postgres.service.ts
-import { MongoClient, Db } from 'mongodb';
+import { Pool, PoolClient, QueryResult, PoolConfig } from 'pg';
 
-export class DatabaseService {
-  private static instance: DatabaseService; // The singleton instance
-  private client: MongoClient | null = null;  // Store the actual client
-  private db: Db | null = null;            
+type QueryParams = Array<string | number | boolean | null | Date | Buffer | object>;
+
+export class PostgresService {
+  private static instance: PostgresService;
+  private pool: Pool | null = null;
 
   private constructor() {}
 
-  /**
-   * The static method to access the single `DatabaseService` instance.
-   */
-  public static getInstance(): DatabaseService {
-    if (!DatabaseService.instance) {
-      DatabaseService.instance = new DatabaseService();
+  public static getInstance(): PostgresService {
+    if (!PostgresService.instance) {
+      PostgresService.instance = new PostgresService();
     }
-    return DatabaseService.instance;
+    return PostgresService.instance;
   }
 
   /**
-   * Connect to MongoDB only once. If `this.db` already exists, just return it.
+   * Initialize a Pool once. Safe to call multiple times.
+   * Uses DATABASE_URL if present; otherwise PG* vars.
    */
-  public async connect(): Promise<Db> {
-    if (this.db) {
-      // Already connected; just return it
-      return this.db;
-    }
+  public connect(config?: PoolConfig): Pool {
+    if (this.pool) return this.pool;
 
-    // Otherwise, create a new connection
-    const url = process.env.MONGO_URI || "mongodb://localhost:27017/busterBrackets";
-    this.client = new MongoClient(url);
+    const useUrl = process.env.DATABASE_URL;
+    const isProd = process.env.NODE_ENV === 'production';
 
-    await this.client.connect();
-    this.db = this.client.db(); 
-    console.log('Connected successfully to MongoDB (singleton).');
+    const base: PoolConfig =
+      useUrl
+        ? {
+            connectionString: useUrl,
+            // Many managed Postgres providers require SSL in prod.
+            ssl: isProd ? { rejectUnauthorized: false } : undefined,
+          }
+        : {
+            host: process.env.PGHOST || 'localhost',
+            port: Number(process.env.PGPORT || 5432),
+            user: process.env.PGUSER || 'postgres',
+            password: process.env.PGPASSWORD || undefined,
+            database: process.env.PGDATABASE || 'busterbrackets',
+          };
 
-    return this.db;
+    this.pool = new Pool({ ...base, ...config });
+
+    this.pool.on('error', (err) => {
+      // This is important so the app doesn’t silently hang on idle client errors.
+      console.error('[Postgres pool error]', err);
+    });
+
+    return this.pool;
   }
 
   /**
-   * Get the `Db` object directly. Throws if not connected.
+   * Simple query helper for one-off queries.
+   * Ensure connect() was called during app bootstrap.
    */
-  public getDb(): Db {
-    if (!this.db) {
-      throw new Error('DatabaseService not connected. Call connect() first.');
-    }
-    return this.db;
+  public async query<T extends import('pg').QueryResultRow = import('pg').QueryResultRow>(text: string, params?: QueryParams): Promise<QueryResult<T>> {
+    if (!this.pool) throw new Error('PostgresService not connected. Call connect() first.');
+    return this.pool.query<T>(text, params);
   }
 
   /**
-   *  Disconnect / close the client
+   * Get a client for multi-statement work (e.g., transactions).
+   * You MUST release() the client, ideally via runInTransaction().
+   */
+  public async getClient(): Promise<PoolClient> {
+    if (!this.pool) throw new Error('PostgresService not connected. Call connect() first.');
+    return this.pool.connect();
+  }
+
+  /**
+   * Transaction helper with automatic COMMIT/ROLLBACK + release.
+   * Usage:
+   *   await db.runInTransaction(async (tx) => {
+   *     await tx.query('INSERT ...');
+   *     await tx.query('UPDATE ...');
+   *   });
+   */
+  public async runInTransaction<T>(fn: (tx: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.getClient();
+    try {
+      await client.query('BEGIN');
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('[Postgres rollback error]', rollbackErr);
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Graceful shutdown.
    */
   public async disconnect(): Promise<void> {
-    if (this.client) {
-      await this.client.close();
-      console.log('Disconnected from MongoDB.');
-      this.client = null;
-      this.db = null;
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
+      console.log('Disconnected from Postgres.');
     }
   }
-
 }
-

@@ -2,7 +2,7 @@
 const Hapi = require('@hapi/hapi');
 import dotenv from 'dotenv';
 
-import { DatabaseService } from './controllers/postgres.service';
+import { PostgresService } from './controllers/postgres.service';
 import { AuthService } from './controllers/authService';
 import { UserService } from './controllers/userService';
 
@@ -28,7 +28,7 @@ const init = async () => {
   });
 
   // 1. Connect to MongoDB once
-  const dbService = DatabaseService.getInstance();
+  const dbService = PostgresService.getInstance();
   await dbService.connect(); // This ensures `dbService.getDb()` is ready.
 
     await server.register(require('@hapi/jwt'));

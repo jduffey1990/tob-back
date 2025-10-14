@@ -22,11 +22,17 @@ export const loginRoutes = [
           if (!isValid) {
             return h.response({ message: "Invalid credentials" }).code(401);
           }
+
+          // user must activate account through email verification first
+          if (user && user.status !== 'active') {
+            return h.response({
+              error: 'USER_INACTIVE',
+              message: 'Please verify your email to activate your account.',
+            }).code(403);
+          }
     
           if (user) {
-            // destructure out `password` so it never appears in the response
-            const { password: _, ...sanitizedUser } = user;
-            return h.response({ token, user: sanitizedUser }).code(200);
+            return h.response({ token, user: user}).code(200);
           }
       
           return h.response({ message: 'No user found' }).code(404);
