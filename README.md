@@ -1,6 +1,6 @@
-# 👤 BB Users Microservice
+# 👤 Brandora Users Microservice
 
-This microservice handles all user-related functionality for the BusterBrackets app, including authentication, account creation, and user data management. Built with Node.js, TypeScript, MongoDB, and Hapi.
+This microservice handles all user-related functionality for the Brandora app, including authentication, account creation, and user data management. Built with Node.js, TypeScript, MongoDB, and Hapi.
 
 ---
 
@@ -8,7 +8,7 @@ This microservice handles all user-related functionality for the BusterBrackets 
 
 - **Node.js** + **TypeScript**
 - **Hapi.js** for routing and API structure
-- **MongoDB** for database storage
+- **Postgres** for database storage
 - **JWT** for authentication
 - **Bcrypt** for secure password hashing
 - **Jest** for testing
@@ -18,8 +18,8 @@ This microservice handles all user-related functionality for the BusterBrackets 
 
 ## 🔗 Related Repositories
 
-- [Brackets Microservice](https://github.com/jduffey1990/busterbrackets-app-brackets)
-- [UI/UX Frontend](https://github.com/jduffey1990/busterbrackets-ui)
+- [Business Verification Microservice](https://github.com/jduffey1990/bus-verify-wsapp)
+- [UI/UX Frontend](https://github.com/jduffey1990/wsapp)
 
 ---
 
@@ -28,8 +28,8 @@ This microservice handles all user-related functionality for the BusterBrackets 
 1. **Clone the repo:**
 
    ```bash
-   git clone https://github.com/jduffey1990/busterbrackets-app-users.git
-   cd busterbrackets-app-users
+   git clone https://github.com/jduffey1990/wsapp-users.git
+   cd wsapp-users
    ```
 
 2. **Install dependencies:**
@@ -43,9 +43,7 @@ This microservice handles all user-related functionality for the BusterBrackets 
    ```
    PORT=3000
    JWT_SECRET=yourSuperSecretKey
-   MONGO_URI=mongodb://mongo:27017/busterbrackets
-   STRIPE_SECRET_KEY=yourSuperSecretKey
-   STRIPE_WEBHOOK_SECRET=yourSuperSecretKey
+   
    ```
 
 4. **Start the development server:**
