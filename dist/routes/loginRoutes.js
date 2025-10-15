@@ -22,36 +22,25 @@ exports.homeRoutes = [
 ];
 exports.loginRoutes = [
     {
-        method: 'GET',
-        path: '/login',
-        handler: (request, h) => {
-            return ` <html>
-                            <head>
-                                <title>Login page</title>
-                            </head>
-                            <body>
-                                <h3>Please Log In</h3>
-                                <form method="post" action="/login">
-                                    Username: <input type="text" name="username"><br>
-                                    Password: <input type="password" name="password"><br/>
-                                <input type="submit" value="Login"></form>
-                            </body>
-                        </html>`;
-        },
-        options: {
-            auth: false
-        }
-    },
-    {
         method: 'POST',
         path: '/login',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
             const { username, password } = request.payload;
-            const { isValid, credentials, token } = yield authService_1.AuthService.validateUser(request, username, password, h);
+            const { isValid, credentials: user, token } = yield authService_1.AuthService.validateUser(request, username, password, h);
             if (!isValid) {
                 return h.response({ message: "Invalid credentials" }).code(401);
             }
-            return h.response({ token }).code(200);
+            // user must activate account through email verification first
+            if (user && user.status !== 'active') {
+                return h.response({
+                    error: 'USER_INACTIVE',
+                    message: 'Please verify your email to activate your account.',
+                }).code(403);
+            }
+            if (user) {
+                return h.response({ token, user: user }).code(200);
+            }
+            return h.response({ message: 'No user found' }).code(404);
         }),
         options: { auth: false } // Allow unauthenticated access for login
     },

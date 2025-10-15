@@ -15,9 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // index.ts (or wherever your Hapi server starts)
 const Hapi = require('@hapi/hapi');
 const dotenv_1 = __importDefault(require("dotenv"));
-const mongodb_service_1 = require("./controllers/mongodb.service");
+const postgres_service_1 = require("./controllers/postgres.service");
 const authService_1 = require("./controllers/authService");
-const userService_1 = require("./controllers/userService");
 const loginRoutes_1 = require("./routes/loginRoutes");
 const userRoutes_1 = require("./routes/userRoutes");
 dotenv_1.default.config();
@@ -26,13 +25,18 @@ const init = () => __awaiter(void 0, void 0, void 0, function* () {
     console.log('Initializing server...');
     const server = Hapi.server({
         port: 3000,
-        host: 'localhost'
+        host: '0.0.0.0',
+        routes: {
+            cors: {
+                origin: ['http://localhost:*'],
+                credentials: true, // allow cookies / Authorization headers
+                additionalHeaders: ['X-CSRFToken', 'Content-Type', 'Authorization'] // <-- Add this globally]
+            },
+        },
     });
     // 1. Connect to MongoDB once
-    const dbService = mongodb_service_1.DatabaseService.getInstance();
+    const dbService = postgres_service_1.PostgresService.getInstance();
     yield dbService.connect(); // This ensures `dbService.getDb()` is ready.
-    //   await server.register(require('@hapi/basic'));
-    //   server.auth.strategy('simple', 'basic', { validate: AuthService.validateUser });
     yield server.register(require('@hapi/jwt'));
     server.auth.strategy('jwt', 'jwt', {
         keys: jwtSecret,
@@ -45,8 +49,6 @@ const init = () => __awaiter(void 0, void 0, void 0, function* () {
         validate: authService_1.AuthService.validateToken
     });
     server.auth.default('jwt');
-    // 2. Create your services (or pass around db references if you like)
-    const userService = new userService_1.UserService();
     // 3. Register routes
     server.route([...userRoutes_1.userRoutes, ...loginRoutes_1.loginRoutes, ...loginRoutes_1.homeRoutes]);
     yield server.start();

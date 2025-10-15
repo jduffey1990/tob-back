@@ -1,51 +1,83 @@
-// src/scripts/seedUsers.ts
-import { ObjectId } from 'mongodb';
-const Bcrypt = require('bcrypt');
+// wsapp-users/src/scripts/seedUsers.ts
+import bcrypt from 'bcrypt';
+import { PostgresService } from '../controllers/postgres.service';
+import type { UserSafe } from '../models/user';
 
-import { DatabaseService } from '../controllers/postgres.service';
-import { User } from '../models/user';
-
-
-const now = new Date()
-const users: User[] = Array.from({ length: 10 }, (v, i) => ({
-    _id: new ObjectId(),
-    username: `user${i + 1}`,
-    email: `user${i + 1}@example.com`,
-    password: 'password123', // Default password for demonstration
-    name: `User ${i + 1}`,
-    status: 'active', // Add a default status
-    createdAt: new Date(), // Note: Use new Date() with parentheses
-    updatedAt: new Date(),
-    deletedAt: null,
-    credits: `user${i + 1}` === "user1" ? 1 : 0
-}));
-
-const seedUsers = async () => {
-    const dbService = DatabaseService.getInstance();
-    try {
-        // 1. Initialize and connect to the database
-        await dbService.connect(); 
-
-        // 2. Now get the DB and do insert
-        const db = dbService.getDb();
-        const usersCollection = db.collection('users');
-
-        // Hash passwords and update user objects
-        const usersWithHashedPasswords = await Promise.all(users.map(async user => ({
-            ...user,
-            password: await Bcrypt.hash(user.password, 10) // Hash the password
-        })));
-
-        // Insert users into the database
-        await usersCollection.insertMany(usersWithHashedPasswords);
-        console.log('Users seeded successfully');
-    } catch (error) {
-        console.error('Error seeding users:', error);
-    }finally {
-        // 3. Always disconnect (even if there's an error)
-        await dbService.disconnect();
-      }
+type SeedUserInput = {
+  email: string;
+  name: string;
+  password: string;            // raw password only for seeding
+  status?: string;             // default 'active' for local dev
+  companyId?: string | null;   // optional
 };
 
-seedUsers().catch(console.error);
+function rowToUserSafe(row: any): UserSafe {
+  return {
+    id: row.id,
+    companyId: row.company_id ?? null,
+    email: row.email,
+    name: row.name,
+    status: row.status,
+    deletedAt: row.deleted_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
+function makeSeedUsers(count = 10): SeedUserInput[] {
+  return Array.from({ length: count }, (_v, i) => ({
+    email: `user${i + 1}@example.com`,
+    name: `User ${i + 1}`,
+    password: 'password123',
+    status: 'active',          // for local convenience
+    companyId: null,
+  }));
+}
+
+async function seedUsers() {
+  const db = PostgresService.getInstance();
+  db.connect();
+
+  try {
+    const seeds = makeSeedUsers(10);
+
+    // Hash once per user
+    const hashed = await Promise.all(
+      seeds.map(async (u) => ({
+        ...u,
+        passwordHash: await bcrypt.hash(u.password, 10),
+      }))
+    );
+
+    // Build bulk INSERT
+    const cols = ['company_id', 'email', 'password_hash', 'name', 'status'];
+    const valuesSql: string[] = [];
+    const params: any[] = [];
+
+    hashed.forEach((u, idx) => {
+      const base = idx * cols.length;
+      params.push(u.companyId ?? null, u.email.toLowerCase(), u.passwordHash, u.name, u.status ?? 'active');
+      valuesSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+    });
+
+    const sql = `
+      INSERT INTO users (${cols.join(', ')})
+      VALUES ${valuesSql.join(', ')}
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at
+    `;
+
+    const { rows } = await db.query(sql, params);
+    const users: UserSafe[] = rows.map(rowToUserSafe);
+
+    console.log(`✅ Seeded ${users.length} users`);
+    users.forEach((u) => console.log(`${u.email} (${u.id})`));
+  } catch (err) {
+    console.error('❌ Error seeding users:', err);
+    process.exitCode = 1;
+  } finally {
+    await db.disconnect();
+  }
+}
+
+seedUsers();

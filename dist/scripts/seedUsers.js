@@ -8,33 +8,73 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/scripts/seedUsers.ts
-const mongodb_1 = require("mongodb");
-const Bcrypt = require('bcrypt');
-const mongodb_service_1 = require("../controllers/mongodb.service");
-const users = Array.from({ length: 10 }, (v, i) => ({
-    _id: new mongodb_1.ObjectId(),
-    username: `user${i + 1}`,
-    email: `user${i + 1}@example.com`,
-    password: 'password123', // Default password for demonstration
-    name: `User ${i + 1}`
-}));
-const seedUsers = () => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const db = mongodb_service_1.DatabaseService.getInstance().getDb();
-        const usersCollection = db.collection('users');
-        // Hash passwords and update user objects
-        const usersWithHashedPasswords = yield Promise.all(users.map((user) => __awaiter(void 0, void 0, void 0, function* () {
-            return (Object.assign(Object.assign({}, user), { password: yield Bcrypt.hash(user.password, 10) // Hash the password
-             }));
-        })));
-        // Insert users into the database
-        yield usersCollection.insertMany(usersWithHashedPasswords);
-        console.log('Users seeded successfully');
-    }
-    catch (error) {
-        console.error('Error seeding users:', error);
-    }
-});
-seedUsers().catch(console.error);
+// wsapp-users/src/scripts/seedUsers.ts
+const bcrypt_1 = __importDefault(require("bcrypt"));
+const postgres_service_1 = require("../controllers/postgres.service");
+function rowToUserSafe(row) {
+    var _a, _b;
+    return {
+        id: row.id,
+        companyId: (_a = row.company_id) !== null && _a !== void 0 ? _a : null,
+        email: row.email,
+        name: row.name,
+        status: row.status,
+        deletedAt: (_b = row.deleted_at) !== null && _b !== void 0 ? _b : null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    };
+}
+function makeSeedUsers(count = 10) {
+    return Array.from({ length: count }, (_v, i) => ({
+        email: `user${i + 1}@example.com`,
+        name: `User ${i + 1}`,
+        password: 'password123',
+        status: 'active', // for local convenience
+        companyId: null,
+    }));
+}
+function seedUsers() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const db = postgres_service_1.PostgresService.getInstance();
+        db.connect();
+        try {
+            const seeds = makeSeedUsers(10);
+            // Hash once per user
+            const hashed = yield Promise.all(seeds.map((u) => __awaiter(this, void 0, void 0, function* () {
+                return (Object.assign(Object.assign({}, u), { passwordHash: yield bcrypt_1.default.hash(u.password, 10) }));
+            })));
+            // Build bulk INSERT
+            const cols = ['company_id', 'email', 'password_hash', 'name', 'status'];
+            const valuesSql = [];
+            const params = [];
+            hashed.forEach((u, idx) => {
+                var _a, _b;
+                const base = idx * cols.length;
+                params.push((_a = u.companyId) !== null && _a !== void 0 ? _a : null, u.email.toLowerCase(), u.passwordHash, u.name, (_b = u.status) !== null && _b !== void 0 ? _b : 'active');
+                valuesSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+            });
+            const sql = `
+      INSERT INTO users (${cols.join(', ')})
+      VALUES ${valuesSql.join(', ')}
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at
+    `;
+            const { rows } = yield db.query(sql, params);
+            const users = rows.map(rowToUserSafe);
+            console.log(`✅ Seeded ${users.length} users`);
+            users.forEach((u) => console.log(`${u.email} (${u.id})`));
+        }
+        catch (err) {
+            console.error('❌ Error seeding users:', err);
+            process.exitCode = 1;
+        }
+        finally {
+            yield db.disconnect();
+        }
+    });
+}
+seedUsers();

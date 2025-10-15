@@ -6,9 +6,11 @@ import Stripe from 'stripe';
 import { UserService } from '../controllers/userService';
 import type { User, UserSafe } from '../models/user';          // our TS model (id is string UUID)
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
-});
+
+// Initialize Stripe (if needed at some point)
+// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+//   apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
+// });
 
 export const userRoutes = [
   // find all them hoes
@@ -48,7 +50,7 @@ export const userRoutes = [
       if (!user) return h.response({ error: 'User not found' }).code(404);
       return h.response(user).code(200);
     },
-    options: { auth: true },
+    options: { auth: false },
   },
 
   // Update the authenticated user's name/email
@@ -73,7 +75,7 @@ export const userRoutes = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { auth: true },
+    options: { auth: false },
   },
 
   // Update the authenticated user's name/email
@@ -92,7 +94,7 @@ export const userRoutes = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { auth: true },
+    options: { auth: false },
   },
 
   // Return the current session's user (already validated by @hapi/jwt)
@@ -103,7 +105,7 @@ export const userRoutes = [
       const user = request.auth.credentials as UserSafe | undefined;
       return { user };
     },
-    options: { auth: true },
+    options: { auth: false },
   },
 
   // Create a new user (public signup)
