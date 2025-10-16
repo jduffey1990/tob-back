@@ -13,7 +13,7 @@
  *   AWS_REGION      (optional) falls back to your AWS CLI default
  *   ALIAS           (optional) e.g., "prod" — if set, will point alias to new version
  *   EXCLUDES        (optional) space-separated patterns to exclude from zip
- *                    default: ".git node_modules tests .github .DS_Store *.md dist.zip deploy.js devServer.js"
+ *                    default: ".git tests .github .DS_Store *.md dist.zip deploy.js devServer.js"
  *   ZIP_NAME        (optional) default "dist.zip"
  *   INSTALL_CMD     (optional) default "npm ci --omit=dev"
  *
@@ -52,10 +52,11 @@ function runAndGet(cmd, opts = {}) {
     const INSTALL_CMD = process.env.INSTALL_CMD || 'npm ci --omit=dev';
 
     // Default exclusions keep the bundle lean; add more via EXCLUDES env var.
+    // IMPORTANT: node_modules is NOT excluded - we need production deps in Lambda!
     const DEFAULT_EXCLUDES = [
       '.git',
-      ".env",
-      'node_modules',         // we'll rebuild prod deps
+      '.env',
+      'src',              // Source TypeScript files (we have compiled dist/)
       'tests',
       '.github',
       '.DS_Store',
@@ -63,6 +64,11 @@ function runAndGet(cmd, opts = {}) {
       ZIP_NAME,
       'deploy.js',
       'devServer.js',
+      'tsconfig.json',
+      'jest.config.js',
+      'buildspec.yml',
+      '.dockerignore',
+      'Dockerfile',
     ];
     const EXTRA_EXCLUDES = (process.env.EXCLUDES || '').split(' ').filter(Boolean);
     const EXCLUDES = [...DEFAULT_EXCLUDES, ...EXTRA_EXCLUDES];
@@ -82,10 +88,8 @@ function runAndGet(cmd, opts = {}) {
     // 2) Install production dependencies fresh
     run(INSTALL_CMD);
 
-    // 3) Create zip (exclude junk/dev files)
+    // 3) Create zip (exclude junk/dev files but INCLUDE node_modules)
     const excludeArgs = EXCLUDES.map(p => `-x "${p}${p.endsWith('/') ? '' : (p.includes('*') ? '' : '/*')}"`).join(' ');
-    // The pattern above tries to exclude dirs recursively; for files/globs it leaves as-is.
-    // To be more explicit, we also add -x entries without /* for each.
     const excludeArgsDup = EXCLUDES.map(p => `-x "${p}"`).join(' ');
 
     // Ensure we include node_modules produced by INSTALL_CMD
