@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // wsapp-users/src/scripts/seedUsers.ts
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const postgres_service_1 = require("../controllers/postgres.service");
+require("dotenv/config");
 function rowToUserSafe(row) {
     var _a, _b;
     return {
@@ -40,7 +41,7 @@ function makeSeedUsers(count = 10) {
 function seedUsers() {
     return __awaiter(this, void 0, void 0, function* () {
         const db = postgres_service_1.PostgresService.getInstance();
-        db.connect();
+        yield db.connect();
         try {
             const seeds = makeSeedUsers(10);
             // Hash once per user

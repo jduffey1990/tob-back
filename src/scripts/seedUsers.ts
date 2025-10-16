@@ -2,6 +2,7 @@
 import bcrypt from 'bcrypt';
 import { PostgresService } from '../controllers/postgres.service';
 import type { UserSafe } from '../models/user';
+import 'dotenv/config';
 
 type SeedUserInput = {
   email: string;
@@ -36,7 +37,7 @@ function makeSeedUsers(count = 10): SeedUserInput[] {
 
 async function seedUsers() {
   const db = PostgresService.getInstance();
-  db.connect();
+  await db.connect();
 
   try {
     const seeds = makeSeedUsers(10);

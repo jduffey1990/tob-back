@@ -112,7 +112,6 @@ class PostgresService {
             if (this.pool) {
                 yield this.pool.end();
                 this.pool = null;
-                console.log('Disconnected from Postgres.');
             }
         });
     }
