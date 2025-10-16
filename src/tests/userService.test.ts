@@ -220,9 +220,8 @@ describe('UserService', () => {
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
 
-      const result = await UserService.userUpdateInfo('123e4567-e89b-12d3-a456-426614174000', {
-        firstName: 'John',
-        lastName: 'Doe',
+      const result = await UserService.updateUser('123e4567-e89b-12d3-a456-426614174000', {
+        name: 'John Doe',
         email: 'updated@example.com',
       });
 
@@ -248,9 +247,8 @@ describe('UserService', () => {
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
 
-      const result = await UserService.userUpdateInfo('123e4567-e89b-12d3-a456-426614174000', {
-        firstName: 'Madonna',
-        lastName: '',
+      const result = await UserService.updateUser('123e4567-e89b-12d3-a456-426614174000', {
+        name: 'Madonna',
         email: 'user@example.com',
       });
 
@@ -265,12 +263,36 @@ describe('UserService', () => {
       mockDb.query.mockResolvedValue({ rows: [] });
 
       await expect(
-        UserService.userUpdateInfo('nonexistent-id', {
-          firstName: 'John',
-          lastName: 'Doe',
+        UserService.updateUser('nonexistent-id', {
+          name: 'John Doe',
           email: 'user@example.com',
         })
       ).rejects.toThrow('User not found');
+    });
+
+    it('should update only provided fields', async () => {
+      const mockRow = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        company_id: null,
+        email: 'user@example.com',
+        name: 'John Doe',
+        status: 'inactive',
+        deleted_at: null,
+        created_at: new Date('2024-01-01'),
+        updated_at: new Date('2024-01-02'),
+      };
+
+      mockDb.query.mockResolvedValue({ rows: [mockRow] });
+
+      const result = await UserService.updateUser('123e4567-e89b-12d3-a456-426614174000', {
+        status: 'inactive',
+      });
+
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE users'),
+        ['inactive', '123e4567-e89b-12d3-a456-426614174000']
+      );
+      expect(result.status).toBe('inactive');
     });
   });
 

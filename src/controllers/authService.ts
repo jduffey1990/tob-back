@@ -32,13 +32,11 @@ export class AuthService {
     password: string,
     _h: ResponseToolkit
   ): Promise<{ isValid: boolean; credentials?: UserSafe; token?: string }> {
-    console.log('[AuthService.validateUser] START', { email });
     
     const db = PostgresService.getInstance();
     
     try {
       // Load the user by email (case-insensitive), include password_hash for verification
-      console.log('[AuthService.validateUser] Querying database for user');
       const { rows } = await db.query(
         `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
          FROM users
@@ -46,59 +44,30 @@ export class AuthService {
         LIMIT 1`,
         [email]
       );
-      
-      console.log('[AuthService.validateUser] Query result:', {
-        rowCount: rows.length,
-        foundUser: rows.length > 0
-      });
 
       const row = rows[0];
       if (!row) {
-        console.log('[AuthService.validateUser] User not found');
         return { isValid: false };
       }
-      
-      console.log('[AuthService.validateUser] User found:', {
-        id: row.id,
-        email: row.email,
-        hasPasswordHash: !!row.password_hash,
-        passwordHashLength: row.password_hash?.length
-      });
 
       // Compare password
-      console.log('[AuthService.validateUser] Comparing passwords');
       const passwordOk = await bcrypt.compare(password, row.password_hash);
-      console.log('[AuthService.validateUser] Password comparison result:', passwordOk);
       
       if (!passwordOk) {
-        console.log('[AuthService.validateUser] Invalid password');
         return { isValid: false };
       }
 
       // Build a safe user object (exclude password_hash)
-      console.log('[AuthService.validateUser] Converting to safe user');
       const safe = rowToUserSafe(row);
-      console.log('[AuthService.validateUser] Safe user:', safe);
 
       // Create JWT (keep payload minimal)
-      console.log('[AuthService.validateUser] Generating JWT');
-      console.log('[AuthService.validateUser] JWT secret exists:', !!jwtSecret);
-      
       const token = Jwt.token.generate(
         { id: safe.id, email: safe.email },
         jwtSecret
       );
-      
-      console.log('[AuthService.validateUser] Token generated:', {
-        tokenLength: token?.length,
-        tokenPreview: token?.substring(0, 20) + '...'
-      });
-
-      console.log('[AuthService.validateUser] SUCCESS');
       return { isValid: true, credentials: safe, token };
       
     } catch (error) {
-      console.error('[AuthService.validateUser] ERROR:', error);
       throw error;
     }
   }
