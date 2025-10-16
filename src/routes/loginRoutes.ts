@@ -1,7 +1,7 @@
-import { Request, ResponseToolkit } from '@hapi/hapi';
+import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import { AuthService } from '../controllers/authService'; 
 
-export const homeRoutes = [
+export const homeRoutes : ServerRoute [] = [
     {
         method: 'GET',
         path: '/',
@@ -11,7 +11,7 @@ export const homeRoutes = [
     }
 ];
 
-export const loginRoutes = [
+export const loginRoutes: ServerRoute [] = [
     {
         method: 'POST',
         path: '/login',

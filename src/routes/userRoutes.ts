@@ -1,5 +1,5 @@
 // src/routes/users.ts
-import { Request, ResponseToolkit } from '@hapi/hapi';
+import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import bcrypt from 'bcrypt';
 import Stripe from 'stripe';
 
@@ -12,7 +12,7 @@ import type { User, UserSafe } from '../models/user';          // our TS model (
 //   apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
 // });
 
-export const userRoutes = [
+export const userRoutes : ServerRoute[] = [
   // find all them hoes
   // { 
   //   method: 'GET', 
