@@ -91,7 +91,10 @@ const handler = (event, context) => __awaiter(void 0, void 0, void 0, function* 
     if (!cachedLambdaHandler) {
         const server = yield buildServer();
         const listener = toRequestListener(server);
-        cachedLambdaHandler = (0, serverless_express_1.default)({ app: listener });
+        cachedLambdaHandler = (0, serverless_express_1.default)({
+            app: listener,
+            eventSourceName: 'AWS_API_GATEWAY_V2' // <-- Add this!
+        });
     }
     return cachedLambdaHandler(event, context);
 });

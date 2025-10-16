@@ -88,10 +88,14 @@ export const handler = async (event: any, context: any) => {
   if (!cachedLambdaHandler) {
     const server = await buildServer()
     const listener = toRequestListener(server)
-    cachedLambdaHandler = serverlessExpress({ app: listener })
+    cachedLambdaHandler = serverlessExpress({ 
+      app: listener,
+      eventSourceName: 'AWS_API_GATEWAY_V2'  // <-- Add this!
+    })
   }
   return cachedLambdaHandler(event, context)
 }
+
 
 // ---------- Entrypoint ----------
 if (!IS_LAMBDA) {
