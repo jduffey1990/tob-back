@@ -204,7 +204,7 @@ export const userRoutes : ServerRoute[] = [
           email: payload.email.toLowerCase(),
           name,
           passwordHash,
-          companyId: payload.brandId ?? null, // Note: using brandId from payload
+          companyId: payload.companyId ?? null, // Note: using brandId from payload
           status: "inactive"
         });
 
@@ -220,6 +220,44 @@ export const userRoutes : ServerRoute[] = [
       }
     },
     options: { auth: false },
+  },
+
+  // Return the current session's user (already validated by @hapi/jwt)
+  {
+    method: 'DELETE',
+    path: '/hard-delete/{userId}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const { userId } = request.params;
+        
+        // ⚠️ SAFETY CHECK: Only allow in development
+        if (process.env.NODE_ENV === 'production') {
+          return h.response({ error: 'Hard delete not allowed in production' }).code(403);
+        }
+        
+        // Optional: Require a special header for extra safety
+        const dangerousHeader = request.headers['x-allow-hard-delete'];
+        if (dangerousHeader !== 'yes-i-know-this-is-permanent') {
+          return h.response({ 
+            error: 'Missing required header: x-allow-hard-delete' 
+          }).code(400);
+        }
+        
+        await UserService.hardDelete(userId);
+        
+        return h.response({ 
+          success: true, 
+          message: 'User permanently deleted' 
+        }).code(200);
+      } catch (error: any) {
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: { 
+      auth: false,  // Or require admin auth
+      tags: ['api', 'users', 'dangerous'],
+      description: '⚠️ DEV ONLY: Permanently delete user'
+    },
   }
 
 ];

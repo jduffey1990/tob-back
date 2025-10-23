@@ -165,6 +165,19 @@ export class UserService {
     return mapRowToUser(rows[0]);
   }
 
+  public static async hardDelete(userId: string): Promise<void> {
+  const db = PostgresService.getInstance();
+  
+  // Actually DELETE the row (current code just soft deletes)
+  const { rowCount } = await db.query(
+    `DELETE FROM users WHERE id = $1::uuid`,
+    [userId]
+  );
+  
+  if (rowCount === 0) throw new Error('User not found');
+  // No return needed since row is gone
+}
+
   /**
    * Example: mark user paid based on Stripe PaymentIntent (idempotent pattern).
    */
