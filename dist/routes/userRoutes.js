@@ -121,7 +121,7 @@ exports.userRoutes = [
                         .response({ error: 'email, password, and name are required' })
                         .code(400);
                 }
-                const passwordHash = yield bcrypt_1.default.hash(payload.password, 10);
+                const passwordHash = yield bcrypt_1.default.hash(payload.password, 8);
                 // If you capture companyId/status at signup, pass them here
                 const newUser = yield userService_1.UserService.createUser({
                     email: payload.email.toLowerCase(),

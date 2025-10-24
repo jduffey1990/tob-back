@@ -56,7 +56,11 @@ async function buildServer() {
 
   // Connect DB (once per cold start)
   const dbService = PostgresService.getInstance()
-  await dbService.connect()
+  await dbService.connect({
+    max: 1,                      // Lambda only needs 1 connection
+    idleTimeoutMillis: 120000,   // 2 minutes (longer than Lambda timeout)
+    connectionTimeoutMillis: 5000, // 5 second timeout
+  })
 
   await server.register(require('@hapi/jwt'))
 
@@ -104,8 +108,7 @@ export const handler = async (event: any, context: any) => {
       })
     }
     
-    const result = await cachedLambdaHandler(event, context)
-    return result;
+    return await cachedLambdaHandler(event, context)
   } catch (error) {
     console.error('Lambda Error:', error);
     if (error instanceof Error) {

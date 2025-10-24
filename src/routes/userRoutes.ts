@@ -194,7 +194,7 @@ export const userRoutes : ServerRoute[] = [
         
         console.log('Start password hash');
         const hashStart = Date.now();
-        const passwordHash = await bcrypt.hash(payload.password, 10);
+        const passwordHash = await bcrypt.hash(payload.password, 8);
         console.log(`Hash took: ${Date.now() - hashStart}ms`);
         
         console.log('Start DB insert');
