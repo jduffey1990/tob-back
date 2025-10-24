@@ -55,9 +55,19 @@ export class PostgresService {
    * Simple query helper for one-off queries.
    * Ensure connect() was called during app bootstrap.
    */
-  public async query<T extends import('pg').QueryResultRow = import('pg').QueryResultRow>(text: string, params?: QueryParams): Promise<QueryResult<T>> {
+  public async query<T extends import('pg').QueryResultRow = import('pg').QueryResultRow>(
+    text: string, 
+    params?: QueryParams
+  ): Promise<QueryResult<T>> {
     if (!this.pool) throw new Error('PostgresService not connected. Call connect() first.');
-    return this.pool.query<T>(text, params);
+  
+    const start = Date.now();
+    const result = await this.pool.query<T>(text, params);
+    console.log(`Query took ${Date.now() - start}ms - pool: ${this.pool.totalCount} total, ${this.pool.idleCount} idle, ${this.pool.waitingCount} waiting`);
+    
+    return result;
+  }
+
   }
 
   /**
