@@ -59,7 +59,10 @@ class PostgresService {
         return __awaiter(this, void 0, void 0, function* () {
             if (!this.pool)
                 throw new Error('PostgresService not connected. Call connect() first.');
-            return this.pool.query(text, params);
+            const start = Date.now();
+            const result = yield this.pool.query(text, params);
+            console.log(`Query took ${Date.now() - start}ms - pool: ${this.pool.totalCount} total, ${this.pool.idleCount} idle, ${this.pool.waitingCount} waiting`);
+            return result;
         });
     }
     /**

@@ -14,11 +14,47 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.userRoutes = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
+const axios_1 = __importDefault(require("axios"));
 const userService_1 = require("../controllers/userService");
 // Initialize Stripe (if needed at some point)
 // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
 //   apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
 // });
+function verifyCaptcha(token_1) {
+    return __awaiter(this, arguments, void 0, function* (token, minScore = 0.5) {
+        if (!token) {
+            console.warn('No CAPTCHA token provided');
+            // During development, you can allow this
+            return { success: true, score: null };
+        }
+        const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+        if (!secretKey) {
+            console.warn('RECAPTCHA_SECRET_KEY not set - skipping verification');
+            return { success: true, score: null };
+        }
+        try {
+            const response = yield axios_1.default.post('https://www.google.com/recaptcha/api/siteverify', null, {
+                params: {
+                    secret: secretKey,
+                    response: token,
+                },
+            });
+            const { success, score, action } = response.data;
+            if (!success) {
+                throw new Error('CAPTCHA verification failed');
+            }
+            if (score < minScore) {
+                throw new Error(`CAPTCHA score too low: ${score}`);
+            }
+            console.log(`CAPTCHA verified: score=${score}, action=${action}`);
+            return { success: true, score };
+        }
+        catch (error) {
+            console.error('CAPTCHA verification error:', error.message);
+            throw error;
+        }
+    });
+}
 exports.userRoutes = [
     // find all them hoes
     {
@@ -63,12 +99,20 @@ exports.userRoutes = [
         path: '/edit-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                // Your JWT validate step returns credentials = UserSafe
                 const authUser = request.auth.credentials;
                 if (!(authUser === null || authUser === void 0 ? void 0 : authUser.id))
                     return h.response({ error: 'Unauthorized' }).code(401);
-                const account = request.payload;
-                const updatedUser = yield userService_1.UserService.userUpdateInfo(authUser.id, account);
+                const payload = request.payload;
+                // If firstName/lastName provided, convert to name
+                const updates = Object.assign({}, payload);
+                if (payload.firstName || payload.lastName) {
+                    const firstName = payload.firstName || authUser.name.split(' ')[0] || '';
+                    const lastName = payload.lastName || authUser.name.split(' ').slice(1).join(' ') || '';
+                    updates.name = `${firstName} ${lastName}`.trim();
+                    delete updates.firstName;
+                    delete updates.lastName;
+                }
+                const updatedUser = yield userService_1.UserService.updateUser(authUser.id, updates);
                 return h.response(updatedUser).code(200);
             }
             catch (error) {
@@ -111,9 +155,15 @@ exports.userRoutes = [
         method: 'POST',
         path: '/create-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
-            var _a, _b, _c, _d, _e;
+            var _a, _b, _c, _d;
+            const startTime = Date.now();
             try {
                 const payload = request.payload;
+                console.log('Start CAPTCHA verification');
+                const captchaStart = Date.now();
+                yield verifyCaptcha(payload.captchaToken, 0.5);
+                console.log(`CAPTCHA took: ${Date.now() - captchaStart}ms`);
+                // ... validation ...
                 const name = ((_a = payload.name) === null || _a === void 0 ? void 0 : _a.toString().trim()) ||
                     `${(_b = payload.firstName) !== null && _b !== void 0 ? _b : ''} ${(_c = payload.lastName) !== null && _c !== void 0 ? _c : ''}`.trim();
                 if (!payload.email || !payload.password || !name) {
@@ -121,8 +171,12 @@ exports.userRoutes = [
                         .response({ error: 'email, password, and name are required' })
                         .code(400);
                 }
+                console.log('Start password hash');
+                const hashStart = Date.now();
                 const passwordHash = yield bcrypt_1.default.hash(payload.password, 8);
-                // If you capture companyId/status at signup, pass them here
+                console.log(`Hash took: ${Date.now() - hashStart}ms`);
+                console.log('Start DB insert');
+                const dbStart = Date.now();
                 const newUser = yield userService_1.UserService.createUser({
                     email: payload.email.toLowerCase(),
                     name,
@@ -130,18 +184,48 @@ exports.userRoutes = [
                     companyId: (_d = payload.companyId) !== null && _d !== void 0 ? _d : null,
                     status: "inactive"
                 });
+                console.log(`DB insert took: ${Date.now() - dbStart}ms`);
+                console.log(`Total handler time: ${Date.now() - startTime}ms`);
                 return h.response(newUser).code(201);
             }
             catch (error) {
-                // Preserve your existing FE message for unique violations
-                if ((_e = error === null || error === void 0 ? void 0 : error.message) === null || _e === void 0 ? void 0 : _e.includes('duplicate key value violates unique constraint')) {
-                    return h
-                        .response({ error: 'duplicate key value violates unique constraint' })
-                        .code(400);
+                console.log(`Total time before error: ${Date.now() - startTime}ms`);
+                // ... error handling
+            }
+        }),
+    },
+    // Return the current session's user (already validated by @hapi/jwt)
+    {
+        method: 'DELETE',
+        path: '/hard-delete/{userId}',
+        handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const { userId } = request.params;
+                // ⚠️ SAFETY CHECK: Only allow in development
+                if (process.env.NODE_ENV === 'production') {
+                    return h.response({ error: 'Hard delete not allowed in production' }).code(403);
                 }
+                // Optional: Require a special header for extra safety
+                const dangerousHeader = request.headers['x-allow-hard-delete'];
+                if (dangerousHeader !== 'yes-i-know-this-is-permanent') {
+                    return h.response({
+                        error: 'Missing required header: x-allow-hard-delete'
+                    }).code(400);
+                }
+                yield userService_1.UserService.hardDelete(userId);
+                return h.response({
+                    success: true,
+                    message: 'User permanently deleted'
+                }).code(200);
+            }
+            catch (error) {
                 return h.response({ error: error.message }).code(500);
             }
         }),
-        options: { auth: false },
-    },
+        options: {
+            auth: false, // Or require admin auth
+            tags: ['api', 'users', 'dangerous'],
+            description: '⚠️ DEV ONLY: Permanently delete user'
+        },
+    }
 ];

@@ -80,15 +80,33 @@ class UserService {
     /**
      * Update user basic info by id (name + email).
      */
-    static userUpdateInfo(userId, account) {
+    /**
+     * Update user fields dynamically - only updates fields that are provided
+     */
+    static updateUser(userId, updates) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const fullName = `${account.firstName} ${account.lastName}`.trim();
-            const { rows } = yield db.query(`UPDATE users
-          SET name = $1,
-              email = $2
-        WHERE id = $3::uuid
-        RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`, [fullName, account.email, userId]);
+            // Filter out undefined values (but keep null for companyId)
+            const fields = Object.entries(updates).filter(([_, value]) => value !== undefined);
+            if (fields.length === 0) {
+                throw new Error('No fields to update');
+            }
+            // Build dynamic SET clause
+            const setClauses = fields.map(([key, _], index) => {
+                // Convert camelCase to snake_case for DB columns
+                const dbColumn = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+                return `${dbColumn} = $${index + 1}`;
+            });
+            const values = fields.map(([_, value]) => value);
+            values.push(userId); // Add userId as last parameter
+            const query = `
+      UPDATE users
+      SET ${setClauses.join(', ')},
+          updated_at = NOW()
+      WHERE id = $${values.length}::uuid
+      RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at
+    `;
+            const { rows } = yield db.query(query, values);
             if (!rows[0])
                 throw new Error('User not found');
             return mapRowToUser(rows[0]);
@@ -124,6 +142,16 @@ class UserService {
             if (!rows[0])
                 throw new Error('User not found');
             return mapRowToUser(rows[0]);
+        });
+    }
+    static hardDelete(userId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const db = postgres_service_1.PostgresService.getInstance();
+            // Actually DELETE the row (current code just soft deletes)
+            const { rowCount } = yield db.query(`DELETE FROM users WHERE id = $1::uuid`, [userId]);
+            if (rowCount === 0)
+                throw new Error('User not found');
+            // No return needed since row is gone
         });
     }
     /**

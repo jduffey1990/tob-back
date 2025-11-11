@@ -26,8 +26,10 @@ exports.loginRoutes = [
         method: 'POST',
         path: '/login',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
-            const { username, password } = request.payload;
-            const { isValid, credentials: user, token } = yield authService_1.AuthService.validateUser(request, username, password, h);
+            // Change username to email:
+            const { email, password } = request.payload;
+            console.log('[loginRoutes] Login attempt:', { email, hasPassword: !!password });
+            const { isValid, credentials: user, token } = yield authService_1.AuthService.validateUser(request, email, password, h);
             if (!isValid) {
                 return h.response({ message: "Invalid credentials" }).code(401);
             }
@@ -43,6 +45,6 @@ exports.loginRoutes = [
             }
             return h.response({ message: 'No user found' }).code(404);
         }),
-        options: { auth: false } // Allow unauthenticated access for login
+        options: { auth: false }
     },
 ];

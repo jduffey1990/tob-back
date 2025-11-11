@@ -35,7 +35,7 @@ function makeSeedUsers(count = 10) {
         name: `User ${i + 1}`,
         password: 'password123',
         status: 'active', // for local convenience
-        companyId: null,
+        companyId: '019a7452-2536-7366-83bf-c48d67240781',
     }));
 }
 function seedUsers() {

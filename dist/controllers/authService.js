@@ -40,22 +40,40 @@ class AuthService {
     static validateUser(_request, email, password, _h) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            // Load the user by email (case-insensitive), include password_hash for verification
-            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
+            try {
+                // Load the user by email (case-insensitive), include password_hash for verification
+                const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`, [email]);
-            const row = rows[0];
-            if (!row)
-                return { isValid: false };
-            const passwordOk = yield bcrypt_1.default.compare(password, row.password_hash);
-            if (!passwordOk)
-                return { isValid: false };
-            // Build a safe user object (exclude password_hash)
-            const safe = rowToUserSafe(row);
-            // Create JWT (keep payload minimal)
-            const token = jwt_1.default.token.generate({ id: safe.id, email: safe.email }, jwtSecret);
-            return { isValid: true, credentials: safe, token };
+                const row = rows[0];
+                if (!row) {
+                    return { isValid: false };
+                }
+                // Compare password
+                const passwordOk = yield bcrypt_1.default.compare(password, row.password_hash);
+                if (!passwordOk) {
+                    return { isValid: false };
+                }
+                // Build a safe user object (exclude password_hash)
+                const safe = rowToUserSafe(row);
+                // Create JWT (keep payload minimal)
+                const token = jwt_1.default.token.generate({
+                    id: safe.id,
+                    email: safe.email,
+                    companyId: safe.companyId,
+                    name: safe.name
+                }, {
+                    key: jwtSecret,
+                    algorithm: 'HS256'
+                }, {
+                    ttlSec: 7 * 24 * 60 * 60 // ✅ 7 days expiration
+                });
+                return { isValid: true, credentials: safe, token };
+            }
+            catch (error) {
+                throw error;
+            }
         });
     }
     /**

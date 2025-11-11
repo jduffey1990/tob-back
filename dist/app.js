@@ -61,7 +61,11 @@ function buildServer() {
         });
         // Connect DB (once per cold start)
         const dbService = postgres_service_1.PostgresService.getInstance();
-        yield dbService.connect();
+        yield dbService.connect({
+            max: 1, // Lambda only needs 1 connection
+            idleTimeoutMillis: 120000, // 2 minutes (longer than Lambda timeout)
+            connectionTimeoutMillis: 5000, // 5 second timeout
+        });
         yield server.register(require('@hapi/jwt'));
         server.auth.strategy('jwt', 'jwt', {
             keys: jwtSecret,
@@ -94,15 +98,27 @@ function startLocal() {
 }
 // ---------- Lambda entry ----------
 const handler = (event, context) => __awaiter(void 0, void 0, void 0, function* () {
-    if (!cachedLambdaHandler) {
-        const server = yield buildServer();
-        const listener = toRequestListener(server);
-        cachedLambdaHandler = (0, serverless_express_1.default)({
-            app: listener,
-            eventSourceName: 'AWS_API_GATEWAY_V2' // <-- Add this!
-        });
+    try {
+        if (!cachedLambdaHandler) {
+            const server = yield buildServer();
+            const listener = toRequestListener(server);
+            cachedLambdaHandler = (0, serverless_express_1.default)({
+                app: listener,
+                eventSourceName: 'AWS_API_GATEWAY_V2'
+            });
+        }
+        return yield cachedLambdaHandler(event, context);
     }
-    return cachedLambdaHandler(event, context);
+    catch (error) {
+        console.error('Lambda Error:', error);
+        if (error instanceof Error) {
+            console.error('Stack:', error.stack);
+        }
+        else {
+            console.error('Non-Error thrown:', error);
+        }
+        throw error;
+    }
 });
 exports.handler = handler;
 // ---------- Entrypoint ----------
