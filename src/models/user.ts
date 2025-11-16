@@ -12,3 +12,13 @@ export interface User {
 }
 
 export type UserSafe = Omit<User, 'passwordHash'>;
+
+export interface ActivationToken {
+  id: string;                // uuid
+  userId: string;            // uuid - foreign key to users table
+  email: string;             // redundant but useful for quick lookups
+  token: string;             // hex token (64 chars)
+  expiresAt: Date;           // when this token becomes invalid
+  createdAt: Date;
+  usedAt?: Date | null;      // tracks if/when token was used (for auditing)
+}

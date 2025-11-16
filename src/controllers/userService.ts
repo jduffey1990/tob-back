@@ -49,6 +49,21 @@ export class UserService {
   }
 
   /**
+   * Get one user by email (safe).
+   */
+  public static async findUserByEmail(email: string): Promise<UserSafe | null> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query(
+      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+         FROM users
+        WHERE email = $1
+        LIMIT 1`,
+      [email]
+    );
+    return rows[0] ? mapRowToUser(rows[0]) : null;
+  }
+
+  /**
    * Create a user. Accept a passwordHash (already hashed with bcrypt/argon2).
    * UNIQUE(email) enforced in DB; we convert 23505 to your legacy duplicate message.
    */

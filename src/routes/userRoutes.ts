@@ -1,17 +1,14 @@
 // src/routes/users.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
-import bcrypt from 'bcrypt';
-import Stripe from 'stripe';
 import axios from 'axios';
+import bcrypt from 'bcrypt';
+import { EmailService } from '../controllers/email.service';
+import { randomBytes } from 'crypto';
 
 import { UserService } from '../controllers/userService';
-import type { User, UserSafe } from '../models/user';          // our TS model (id is string UUID)
+import type { UserSafe } from '../models/user'; // our TS model (id is string UUID)
 
 
-// Initialize Stripe (if needed at some point)
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-//   apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
-// });
 async function verifyCaptcha(token: string | null, minScore = 0.5): Promise<{ success: boolean; score: number | null }> {
   if (!token) {
     console.warn('No CAPTCHA token provided');
@@ -53,6 +50,16 @@ async function verifyCaptcha(token: string | null, minScore = 0.5): Promise<{ su
     console.error('CAPTCHA verification error:', error.message);
     throw error;
   }
+}
+
+// Helper function to generate activation token
+async function generateActivationToken(email: string): Promise<string> {
+  // Option 1: Random token stored in database
+  const token = randomBytes(32).toString('hex');
+  
+  await UserService
+  
+  return token;
 }
 
 
@@ -212,7 +219,19 @@ export const userRoutes : ServerRoute[] = [
         return h.response(newUser).code(201);
       } catch (error: any) {
         console.log(`Total time before error: ${Date.now() - startTime}ms`);
-        // ... error handling
+        console.error('Create user error:', error);
+        
+        // Handle duplicate email
+        if (error.message?.includes('duplicate key')) {
+          return h.response({ 
+            error: 'An account with this email already exists' 
+          }).code(409);
+        }
+        
+        // Handle other errors
+        return h.response({ 
+          error: error.message || 'Failed to create account' 
+        }).code(500);
       }
     },
   },
@@ -253,6 +272,6 @@ export const userRoutes : ServerRoute[] = [
       tags: ['api', 'users', 'dangerous'],
       description: '⚠️ DEV ONLY: Permanently delete user'
     },
-  }
+  },
 
 ];

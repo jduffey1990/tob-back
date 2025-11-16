@@ -8,6 +8,7 @@ import { PostgresService } from './controllers/postgres.service'
 import { AuthService } from './controllers/authService'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { userRoutes } from './routes/userRoutes'
+import { tokenRoutes } from './routes/tokenRoutes'
 import { url } from 'inspector'
 
 dotenv.config()
@@ -36,7 +37,8 @@ function asServerRoutes<T extends ServerRoute[]>(routes: T): T { return routes }
 const allRoutes = asServerRoutes([
   ...userRoutes as unknown as ServerRoute[],
   ...homeRoutes as unknown as ServerRoute[],
-  ...loginRoutes as unknown as ServerRoute[], // uncomment if you have it
+  ...loginRoutes as unknown as ServerRoute[],
+  ...tokenRoutes as unknown as ServerRoute[],
 ])
 
 async function buildServer() {
