@@ -13,13 +13,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.userRoutes = void 0;
-const bcrypt_1 = __importDefault(require("bcrypt"));
 const axios_1 = __importDefault(require("axios"));
+const bcrypt_1 = __importDefault(require("bcrypt"));
+const crypto_1 = require("crypto");
 const userService_1 = require("../controllers/userService");
-// Initialize Stripe (if needed at some point)
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-//   apiVersion: '2025-02-24.acacia', // if this blows up, omit apiVersion to use pkg default
-// });
 function verifyCaptcha(token_1) {
     return __awaiter(this, arguments, void 0, function* (token, minScore = 0.5) {
         if (!token) {
@@ -53,6 +50,15 @@ function verifyCaptcha(token_1) {
             console.error('CAPTCHA verification error:', error.message);
             throw error;
         }
+    });
+}
+// Helper function to generate activation token
+function generateActivationToken(email) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Option 1: Random token stored in database
+        const token = (0, crypto_1.randomBytes)(32).toString('hex');
+        yield userService_1.UserService;
+        return token;
     });
 }
 exports.userRoutes = [
@@ -155,7 +161,7 @@ exports.userRoutes = [
         method: 'POST',
         path: '/create-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
-            var _a, _b, _c, _d;
+            var _a, _b, _c, _d, _e;
             const startTime = Date.now();
             try {
                 const payload = request.payload;
@@ -190,7 +196,17 @@ exports.userRoutes = [
             }
             catch (error) {
                 console.log(`Total time before error: ${Date.now() - startTime}ms`);
-                // ... error handling
+                console.error('Create user error:', error);
+                // Handle duplicate email
+                if ((_e = error.message) === null || _e === void 0 ? void 0 : _e.includes('duplicate key')) {
+                    return h.response({
+                        error: 'An account with this email already exists'
+                    }).code(409);
+                }
+                // Handle other errors
+                return h.response({
+                    error: error.message || 'Failed to create account'
+                }).code(500);
             }
         }),
     },
@@ -227,5 +243,5 @@ exports.userRoutes = [
             tags: ['api', 'users', 'dangerous'],
             description: '⚠️ DEV ONLY: Permanently delete user'
         },
-    }
+    },
 ];

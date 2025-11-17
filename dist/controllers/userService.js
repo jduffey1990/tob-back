@@ -53,6 +53,19 @@ class UserService {
         });
     }
     /**
+     * Get one user by email (safe).
+     */
+    static findUserByEmail(email) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const db = postgres_service_1.PostgresService.getInstance();
+            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+         FROM users
+        WHERE email = $1
+        LIMIT 1`, [email]);
+            return rows[0] ? mapRowToUser(rows[0]) : null;
+        });
+    }
+    /**
      * Create a user. Accept a passwordHash (already hashed with bcrypt/argon2).
      * UNIQUE(email) enforced in DB; we convert 23505 to your legacy duplicate message.
      */
