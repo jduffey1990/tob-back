@@ -1,0 +1,14 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+.terraform.tfstate.lock.info
+tfplan
+terraform.tfvars
+!terraform.tfvars.example
+
+
+# OS
+.DS_Store

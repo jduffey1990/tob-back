@@ -1,0 +1,5 @@
+github_token         = "ghp_xxxxxxxxxxxx"
+database_url         = "postgresql://user:pass@host:5432/db"
+jwt_secret          = "your-secret-here"
+recaptcha_secret_key = "6Lxxxxxxxxxxxxxxxxxxxxxxxxx"
+app_url             = "https://your-frontend-url.com"
