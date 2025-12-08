@@ -10,7 +10,7 @@ variable "service_name" {
 variable "github_repo" {
   description = "GitHub repository name"
   type        = string
-  default     = "wsapp-companies"
+  default     = "tob-back"
 }
 
 variable "github_owner" {
@@ -28,7 +28,7 @@ variable "github_branch" {
 variable "project" {
   description = "Project name for tagging"
   type        = string
-  default     = "brandora"
+  default     = "towerofbabble"
 }
 
 variable "owner" {
@@ -40,11 +40,11 @@ variable "owner" {
 variable "environment" {
   description = "Environment (dev, staging, prod)"
   type        = string
-  default     = "prod"
+  default     = "production"
   
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be dev, staging, or prod."
+    condition     = contains(["dev", "staging", "production"], var.environment)
+    error_message = "Environment must be dev, staging, or production."
   }
 }
 
@@ -57,7 +57,7 @@ variable "aws_region" {
 variable "aws_account_id" {
   description = "AWS account ID"
   type        = string
-  default     = "181410801616"
+  sensitive   = true
 }
 
 variable "lambda_runtime" {
@@ -92,30 +92,6 @@ variable "database_url" {
 
 variable "jwt_secret" {
   description = "JWT secret for authentication"
-  type        = string
-  sensitive   = true
-}
-
-variable "recaptcha_secret_key" {
-  description = "reCAPTCHA secret key"
-  type        = string
-  sensitive   = true
-}
-
-variable "from_email" {
-  description = "no reply"
-  type        = string
-  default     = "noreply@foxdogdevelopment.com"
-}
-
-variable "app_url" {
-  description = "base frontend url"
-  type        = string
-  sensitive   = true
-}
-
-variable "users_service_url" {
-  description = "base users api url"
   type        = string
   sensitive   = true
 }
