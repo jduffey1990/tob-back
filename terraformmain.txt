@@ -1,4 +1,5 @@
-# main.tf
+# terraformmain.txt
+# claude won't let me drag and drop
 # Main infrastructure resources for companies microservice
 
 # Configure AWS provider
@@ -62,7 +63,7 @@ resource "aws_apigatewayv2_api" "main" {
   protocol_type = "HTTP"
   
   cors_configuration {
-    allow_origins     = ["*"]
+    allow_origins     = [*]
     allow_methods     = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     allow_headers     = [
       "authorization",
@@ -72,7 +73,7 @@ resource "aws_apigatewayv2_api" "main" {
       "accept-encoding",
       "accept-language"
     ]
-    allow_credentials = false
+    allow_credentials = true
     max_age           = 300
   }
   
