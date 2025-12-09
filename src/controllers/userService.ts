@@ -27,7 +27,8 @@ export class UserService {
   public static async findAllUsers(): Promise<UserSafe[]> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`
     );
@@ -40,7 +41,8 @@ export class UserService {
   public static async findUserById(id: string): Promise<UserSafe | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
@@ -55,7 +57,8 @@ export class UserService {
   public static async findUserByEmail(email: string): Promise<UserSafe | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
         LIMIT 1`,
@@ -72,19 +75,18 @@ export class UserService {
     email: string;
     name: string;
     passwordHash: string;
-    companyId?: string | null;
     status?: string; // optional override
   }): Promise<UserSafe> {
     const db = PostgresService.getInstance();
-    const companyId = input.companyId ?? null;
     const status = input.status ?? 'active';
 
     try {
       const { rows } = await db.query(
-        `INSERT INTO users (company_id, email, password_hash, name, status)
-         VALUES ($1::uuid, $2, $3, $4, $5)
-         RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`,
-        [companyId, input.email, input.passwordHash, input.name, status]
+        `INSERT INTO users (email, password_hash, name, status)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                   deleted_at, created_at, updated_at`,
+        [input.email, input.passwordHash, input.name, status]
       );
       return mapRowToUserSafe(rows[0]);
     } catch (err: any) {
@@ -97,9 +99,6 @@ export class UserService {
   }
 
   /**
-   * Update user basic info by id (name + email).
-   */
-  /**
    * Update user fields dynamically - only updates fields that are provided
    */
   public static async updateUser(
@@ -108,12 +107,13 @@ export class UserService {
       name: string;
       email: string;
       status: string;
-      companyId: string | null;
+      subscriptionTier: string;
+      subscriptionExpiresAt: Date | null;
     }>
   ): Promise<UserSafe> {
     const db = PostgresService.getInstance();
     
-    // Filter out undefined values (but keep null for companyId)
+    // Filter out undefined values (but keep null for subscriptionExpiresAt)
     const fields = Object.entries(updates).filter(([_, value]) => value !== undefined);
     
     if (fields.length === 0) {
@@ -135,7 +135,8 @@ export class UserService {
       SET ${setClauses.join(', ')},
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
-      RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                deleted_at, created_at, updated_at
     `;
     
     const { rows } = await db.query(query, values);
@@ -152,7 +153,8 @@ export class UserService {
           SET status = 'active'
         WHERE id = $1::uuid
           AND status = 'inactive'
-        RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                  deleted_at, created_at, updated_at`,
       [userId]
     );
 
@@ -161,7 +163,6 @@ export class UserService {
       throw new Error('Activation failed: user not found or already active');
     }
 
-    // reuse your existing row→safe mapper if exported
     return mapRowToUserSafe(rows[0]);
   }
 
@@ -174,28 +175,33 @@ export class UserService {
       `UPDATE users
           SET deleted_at = NOW()
         WHERE id = $1::uuid
-        RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                  deleted_at, created_at, updated_at`,
       [userId]
     );
     if (!rows[0]) throw new Error('User not found');
     return mapRowToUserSafe(rows[0]);
   }
 
+  /**
+   * Hard delete: actually remove the row from the database.
+   */
   public static async hardDelete(userId: string): Promise<void> {
-  const db = PostgresService.getInstance();
-  
-  // Actually DELETE the row (current code just soft deletes)
-  const { rowCount } = await db.query(
-    `DELETE FROM users WHERE id = $1::uuid`,
-    [userId]
-  );
-  
-  if (rowCount === 0) throw new Error('User not found');
-  // No return needed since row is gone
-}
+    const db = PostgresService.getInstance();
+    
+    // Actually DELETE the row (current code just soft deletes)
+    const { rowCount } = await db.query(
+      `DELETE FROM users WHERE id = $1::uuid`,
+      [userId]
+    );
+    
+    if (rowCount === 0) throw new Error('User not found');
+    // No return needed since row is gone
+  }
 
   /**
    * Example: mark user paid based on Stripe PaymentIntent (idempotent pattern).
+   * NOTE: This assumes you have a payments table - adjust as needed for your subscription system
    */
   public static async markUserPaidFromIntent(userId: string, paymentIntentId: string): Promise<UserSafe> {
     const db = PostgresService.getInstance();
@@ -212,7 +218,8 @@ export class UserService {
         `UPDATE users
             SET updated_at = NOW()
           WHERE id = $1::uuid
-          RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`,
+          RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                    deleted_at, created_at, updated_at`,
         [userId]
       );
 

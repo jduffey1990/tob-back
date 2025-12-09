@@ -8,6 +8,7 @@ import { PostgresService } from './controllers/postgres.service'
 import { AuthService } from './controllers/authService'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { userRoutes } from './routes/userRoutes'
+import { prayerRoutes } from './routes/prayerRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
 import { url } from 'inspector'
 
@@ -31,6 +32,7 @@ const allRoutes = asServerRoutes([
   ...homeRoutes as unknown as ServerRoute[],
   ...loginRoutes as unknown as ServerRoute[],
   ...tokenRoutes as unknown as ServerRoute[],
+  ...prayerRoutes as unknown as ServerRoute[],
 ])
 
 async function buildServer() {

@@ -9,7 +9,7 @@ import { User, UserSafe } from '../models/user';
 dotenv.config();
 const jwtSecret = process.env.JWT_SECRET || '';
 
-function mapRowToUserSafe(row: any): UserSafe {
+function rowToUserSafe(row: any): UserSafe {
   return {
     id: row.id,
     email: row.email,
@@ -39,7 +39,8 @@ export class AuthService {
     try {
       // Load the user by email (case-insensitive), include password_hash for verification
       const { rows } = await db.query(
-        `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
+        `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+                deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`,
@@ -59,21 +60,22 @@ export class AuthService {
       }
 
       // Build a safe user object (exclude password_hash)
-      const safe = mapRowToUserSafe(row);
+      const safe = rowToUserSafe(row);
 
       // Create JWT (keep payload minimal)
       const token = Jwt.token.generate(
         { 
           id: safe.id, 
           email: safe.email,
-          name: safe.name
+          name: safe.name,
+          subscriptionTier: safe.subscriptionTier
         },
         { 
           key: jwtSecret,
           algorithm: 'HS256'
         },
         {
-          ttlSec: 7 * 24 * 60 * 60  // ✅ 7 days expiration
+          ttlSec: 7 * 24 * 60 * 60  // âœ… 7 days expiration
         }
       );
       return { isValid: true, credentials: safe, token };
@@ -103,7 +105,8 @@ export class AuthService {
 
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
@@ -113,6 +116,6 @@ export class AuthService {
     const row = rows[0];
     if (!row) return { isValid: false };
 
-    return { isValid: true, credentials: mapRowToUserSafe(row) };
+    return { isValid: true, credentials: rowToUserSafe(row) };
   }
 }

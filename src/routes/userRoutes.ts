@@ -105,14 +105,17 @@ export const userRoutes : ServerRoute[] = [
           name: string;
           email: string;
           status: string;
-          companyId: string | null;
+          subscriptionTier: string;
+          subscriptionExpiresAt: Date | null;
           // Or support firstName/lastName separately:
           firstName: string;
           lastName: string;
         }>;
 
-        // If firstName/lastName provided, convert to name
+        // Build updates object
         const updates: any = { ...payload };
+        
+        // If firstName/lastName provided, convert to name
         if (payload.firstName || payload.lastName) {
           const firstName = payload.firstName || authUser.name.split(' ')[0] || '';
           const lastName = payload.lastName || authUser.name.split(' ').slice(1).join(' ') || '';
@@ -121,6 +124,8 @@ export const userRoutes : ServerRoute[] = [
           delete updates.lastName;
         }
 
+        // Call the dynamic updateUser service
+        // It will only update fields that are present in the updates object
         const updatedUser = await UserService.updateUser(authUser.id, updates);
         return h.response(updatedUser).code(200);
       } catch (error: any) {
@@ -165,35 +170,40 @@ export const userRoutes : ServerRoute[] = [
     method: 'POST',
     path: '/create-user',
     handler: async (request: Request, h: ResponseToolkit) => {
-      const startTime = Date.now();
-      
       try {
         const payload = request.payload as any;
-        const captchaStart = Date.now();
+        
+        // Verify captcha (optional - can be disabled in dev)
         await verifyCaptcha(payload.captchaToken, 0.5);
         
-        // ... validation ...
+        // Parse name from either 'name' field or 'firstName' + 'lastName'
         const name =
           payload.name?.toString().trim() ||
           `${payload.firstName ?? ''} ${payload.lastName ?? ''}`.trim();
         
+        // Validate required fields
         if (!payload.email || !payload.password || !name) {
           return h
             .response({ error: 'email, password, and name are required' })
             .code(400);
         }
         
-        const hashStart = Date.now();
+        // Hash password (8 rounds is fine for bcrypt)
         const passwordHash = await bcrypt.hash(payload.password, 8);
         
-        const dbStart = Date.now();
+        // Create user
+        // Note: subscriptionTier defaults to 'free' in DB
+        //       subscriptionExpiresAt defaults to NULL
+        //       status set to 'inactive' (requires email verification)
         const newUser = await UserService.createUser({
           email: payload.email.toLowerCase(),
           name,
           passwordHash,
-          companyId: payload.companyId ?? null,
           status: "inactive"
         });
+        
+        // TODO: Send activation email here
+        // await EmailService.sendActivationEmail(newUser.email, activationToken);
         
         return h.response(newUser).code(201);
       } catch (error: any) {
@@ -212,7 +222,9 @@ export const userRoutes : ServerRoute[] = [
         }).code(500);
       }
     },
+    options: { auth: false }
   },
+
 
   // Return the current session's user (already validated by @hapi/jwt)
   {
