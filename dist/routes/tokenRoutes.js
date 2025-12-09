@@ -14,7 +14,6 @@ const tokenService_1 = require("../controllers/tokenService");
 const email_service_1 = require("../controllers/email.service");
 const userService_1 = require("../controllers/userService");
 const emailService = new email_service_1.EmailService();
-// ===== SEND ACTIVATION EMAIL ROUTE =====
 exports.tokenRoutes = [
     {
         method: 'POST',

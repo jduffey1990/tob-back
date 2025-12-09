@@ -2,7 +2,7 @@ version: 0.2
 
 env:
   variables:
-    FUNCTION_NAME: wsapp-users
+    FUNCTION_NAME: towerofbabble
     ALIAS: prod
     # DATABASE_URL should be set as an environment variable in CodeBuild project settings
     # or pulled from Systems Manager Parameter Store / Secrets Manager

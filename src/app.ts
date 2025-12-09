@@ -13,17 +13,9 @@ import { url } from 'inspector'
 
 dotenv.config()
 
-console.log('[DB cfg]', {
-  host: process.env.PGHOST,
-  db: process.env.PGDATABASE,
-  user: process.env.PGUSER,
-  port: process.env.PGPORT,
-  url: process.env.DATABASE_URL,
-});
-
 const NODE_ENV = process.env.NODE_ENV || 'development'
 const IS_LAMBDA = NODE_ENV === 'production' || !!process.env.LAMBDA_TASK_ROOT
-const PORT = Number(process.env.PORT || 3000)
+const PORT = Number(process.env.PORT || 3004)
 const HOST = process.env.HOST || '0.0.0.0'
 const jwtSecret = process.env.JWT_SECRET
 

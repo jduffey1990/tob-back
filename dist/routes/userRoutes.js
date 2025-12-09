@@ -15,7 +15,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.userRoutes = void 0;
 const axios_1 = __importDefault(require("axios"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
-const crypto_1 = require("crypto");
 const userService_1 = require("../controllers/userService");
 function verifyCaptcha(token_1) {
     return __awaiter(this, arguments, void 0, function* (token, minScore = 0.5) {
@@ -43,22 +42,12 @@ function verifyCaptcha(token_1) {
             if (score < minScore) {
                 throw new Error(`CAPTCHA score too low: ${score}`);
             }
-            console.log(`CAPTCHA verified: score=${score}, action=${action}`);
             return { success: true, score };
         }
         catch (error) {
             console.error('CAPTCHA verification error:', error.message);
             throw error;
         }
-    });
-}
-// Helper function to generate activation token
-function generateActivationToken(email) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // Option 1: Random token stored in database
-        const token = (0, crypto_1.randomBytes)(32).toString('hex');
-        yield userService_1.UserService;
-        return token;
     });
 }
 exports.userRoutes = [
@@ -165,10 +154,8 @@ exports.userRoutes = [
             const startTime = Date.now();
             try {
                 const payload = request.payload;
-                console.log('Start CAPTCHA verification');
                 const captchaStart = Date.now();
                 yield verifyCaptcha(payload.captchaToken, 0.5);
-                console.log(`CAPTCHA took: ${Date.now() - captchaStart}ms`);
                 // ... validation ...
                 const name = ((_a = payload.name) === null || _a === void 0 ? void 0 : _a.toString().trim()) ||
                     `${(_b = payload.firstName) !== null && _b !== void 0 ? _b : ''} ${(_c = payload.lastName) !== null && _c !== void 0 ? _c : ''}`.trim();
@@ -177,11 +164,8 @@ exports.userRoutes = [
                         .response({ error: 'email, password, and name are required' })
                         .code(400);
                 }
-                console.log('Start password hash');
                 const hashStart = Date.now();
                 const passwordHash = yield bcrypt_1.default.hash(payload.password, 8);
-                console.log(`Hash took: ${Date.now() - hashStart}ms`);
-                console.log('Start DB insert');
                 const dbStart = Date.now();
                 const newUser = yield userService_1.UserService.createUser({
                     email: payload.email.toLowerCase(),
@@ -190,12 +174,9 @@ exports.userRoutes = [
                     companyId: (_d = payload.companyId) !== null && _d !== void 0 ? _d : null,
                     status: "inactive"
                 });
-                console.log(`DB insert took: ${Date.now() - dbStart}ms`);
-                console.log(`Total handler time: ${Date.now() - startTime}ms`);
                 return h.response(newUser).code(201);
             }
             catch (error) {
-                console.log(`Total time before error: ${Date.now() - startTime}ms`);
                 console.error('Create user error:', error);
                 // Handle duplicate email
                 if ((_e = error.message) === null || _e === void 0 ? void 0 : _e.includes('duplicate key')) {

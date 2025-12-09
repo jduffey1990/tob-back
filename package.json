@@ -1,7 +1,7 @@
 {
-  "name": "wsapp-users-microservice",
+  "name": "Tower of Babble Backend service",
   "version": "1.0.0",
-  "description": "wsapp users microservice",
+  "description": "Tower of Babble Backend service",
   "main": "index.js",
   "scripts": {
     "start": "node dist/app.js",
@@ -11,7 +11,7 @@
     "migrate:up": "dotenv -e .env -- node-pg-migrate up -m src/migrations",
     "migrate:down": "dotenv -e .env -- node-pg-migrate down -m src/migrations",
     "migrate:reset": "dotenv -e .env -- node-pg-migrate reset -m src/migrations",
-    "seed:users": "dotenv -e .env -- npm run build && node dist/scripts/seedUsers.js",
+    "seed:users": "npm run build && node dist/scripts/seedUsers.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

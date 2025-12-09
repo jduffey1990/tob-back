@@ -61,7 +61,6 @@ class PostgresService {
                 throw new Error('PostgresService not connected. Call connect() first.');
             const start = Date.now();
             const result = yield this.pool.query(text, params);
-            console.log(`Query took ${Date.now() - start}ms - pool: ${this.pool.totalCount} total, ${this.pool.idleCount} idle, ${this.pool.waitingCount} waiting`);
             return result;
         });
     }

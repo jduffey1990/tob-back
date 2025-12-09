@@ -28,7 +28,6 @@ exports.loginRoutes = [
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
             // Change username to email:
             const { email, password } = request.payload;
-            console.log('[loginRoutes] Login attempt:', { email, hasPassword: !!password });
             const { isValid, credentials: user, token } = yield authService_1.AuthService.validateUser(request, email, password, h);
             if (!isValid) {
                 return h.response({ message: "Invalid credentials" }).code(401);

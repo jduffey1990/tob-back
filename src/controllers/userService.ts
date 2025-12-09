@@ -6,15 +6,16 @@ import { User } from '../models/user';
 export type UserSafe = Omit<User, 'passwordHash'>;
 
 // Map db row -> UserSafe (snake_case -> camelCase)
-function mapRowToUser(row: any): UserSafe {
+function mapRowToUserSafe(row: any): UserSafe {
   return {
     id: row.id,
-    companyId: row.company_id ?? null,
     email: row.email,
     name: row.name,
     status: row.status,
+    subscriptionTier: row.subscription_tier,
+    subscriptionExpiresAt: row.subscription_expires_at ?? null,
     deletedAt: row.deleted_at ?? null,
-    createdAt: row.created_at, // node-postgres returns Date for timestamptz
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
@@ -30,7 +31,7 @@ export class UserService {
        FROM users
        ORDER BY created_at DESC`
     );
-    return rows.map(mapRowToUser);
+    return rows.map(mapRowToUserSafe);
   }
 
   /**
@@ -45,7 +46,7 @@ export class UserService {
         LIMIT 1`,
       [id]
     );
-    return rows[0] ? mapRowToUser(rows[0]) : null;
+    return rows[0] ? mapRowToUserSafe(rows[0]) : null;
   }
 
   /**
@@ -60,7 +61,7 @@ export class UserService {
         LIMIT 1`,
       [email]
     );
-    return rows[0] ? mapRowToUser(rows[0]) : null;
+    return rows[0] ? mapRowToUserSafe(rows[0]) : null;
   }
 
   /**
@@ -85,7 +86,7 @@ export class UserService {
          RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`,
         [companyId, input.email, input.passwordHash, input.name, status]
       );
-      return mapRowToUser(rows[0]);
+      return mapRowToUserSafe(rows[0]);
     } catch (err: any) {
       if (err?.code === '23505') {
         // Keeps your frontend logic unchanged
@@ -140,7 +141,7 @@ export class UserService {
     const { rows } = await db.query(query, values);
     
     if (!rows[0]) throw new Error('User not found');
-    return mapRowToUser(rows[0]);
+    return mapRowToUserSafe(rows[0]);
   }
 
   /** Flip user status to 'active' (only from 'inactive') and return the safe user. */
@@ -161,7 +162,7 @@ export class UserService {
     }
 
     // reuse your existing row→safe mapper if exported
-    return mapRowToUser(rows[0]);
+    return mapRowToUserSafe(rows[0]);
   }
 
   /**
@@ -177,7 +178,7 @@ export class UserService {
       [userId]
     );
     if (!rows[0]) throw new Error('User not found');
-    return mapRowToUser(rows[0]);
+    return mapRowToUserSafe(rows[0]);
   }
 
   public static async hardDelete(userId: string): Promise<void> {
@@ -216,7 +217,7 @@ export class UserService {
       );
 
       if (!rows[0]) throw new Error('User not found');
-      return mapRowToUser(rows[0]);
+      return mapRowToUserSafe(rows[0]);
     });
   }
 }

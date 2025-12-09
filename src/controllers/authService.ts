@@ -9,13 +9,14 @@ import { User, UserSafe } from '../models/user';
 dotenv.config();
 const jwtSecret = process.env.JWT_SECRET || '';
 
-function rowToUserSafe(row: any): UserSafe {
+function mapRowToUserSafe(row: any): UserSafe {
   return {
     id: row.id,
-    companyId: row.company_id ?? null,
     email: row.email,
     name: row.name,
     status: row.status,
+    subscriptionTier: row.subscription_tier,
+    subscriptionExpiresAt: row.subscription_expires_at ?? null,
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -58,14 +59,13 @@ export class AuthService {
       }
 
       // Build a safe user object (exclude password_hash)
-      const safe = rowToUserSafe(row);
+      const safe = mapRowToUserSafe(row);
 
       // Create JWT (keep payload minimal)
       const token = Jwt.token.generate(
         { 
           id: safe.id, 
           email: safe.email,
-          companyId: safe.companyId,
           name: safe.name
         },
         { 
@@ -113,6 +113,6 @@ export class AuthService {
     const row = rows[0];
     if (!row) return { isValid: false };
 
-    return { isValid: true, credentials: rowToUserSafe(row) };
+    return { isValid: true, credentials: mapRowToUserSafe(row) };
   }
 }

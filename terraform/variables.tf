@@ -78,6 +78,12 @@ variable "lambda_timeout" {
   default     = 30
 }
 
+variable "node_env" {
+  description = "Describing environment in some places conditionally in code"
+  type        = string
+  default     = "production"
+}
+
 variable "github_token" {
   description = "GitHub personal access token for CodePipeline"
   type        = string

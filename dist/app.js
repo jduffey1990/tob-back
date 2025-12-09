@@ -23,16 +23,9 @@ const loginRoutes_1 = require("./routes/loginRoutes");
 const userRoutes_1 = require("./routes/userRoutes");
 const tokenRoutes_1 = require("./routes/tokenRoutes");
 dotenv_1.default.config();
-console.log('[DB cfg]', {
-    host: process.env.PGHOST,
-    db: process.env.PGDATABASE,
-    user: process.env.PGUSER,
-    port: process.env.PGPORT,
-    url: process.env.DATABASE_URL,
-});
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_LAMBDA = NODE_ENV === 'production' || !!process.env.LAMBDA_TASK_ROOT;
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 3004);
 const HOST = process.env.HOST || '0.0.0.0';
 const jwtSecret = process.env.JWT_SECRET;
 let cachedLambdaHandler;
@@ -46,6 +39,7 @@ const allRoutes = asServerRoutes([
     ...loginRoutes_1.loginRoutes,
     ...tokenRoutes_1.tokenRoutes,
 ]);
+console.log("here are the routes we have:", allRoutes);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {
         const server = hapi_1.default.server({

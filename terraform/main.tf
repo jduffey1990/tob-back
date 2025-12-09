@@ -45,10 +45,6 @@ resource "aws_lambda_function" "main" {
       NODE_ENV             = "production"
       DATABASE_URL         = var.database_url
       JWT_SECRET           = var.jwt_secret
-      RECAPTCHA_SECRET_KEY = var.recaptcha_secret_key
-      FROM_EMAIL = var.from_email
-      APP_URL = var.app_url
-      USERS_SERVICE_URL = var.users_service_url
     }
   }
   
@@ -66,7 +62,7 @@ resource "aws_apigatewayv2_api" "main" {
   protocol_type = "HTTP"
   
   cors_configuration {
-    allow_origins     = ["https://jduffey1990.github.io"]
+    allow_origins     = [*]
     allow_methods     = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     allow_headers     = [
       "authorization",

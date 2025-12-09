@@ -1,11 +1,12 @@
 // src/models/user.ts
 export interface User {
-  id: string;                // uuid
-  companyId?: string | null; // uuid or null
+  id: string;                     // uuid
   email: string;
-  passwordHash: string;      // store hash, never raw password
+  passwordHash: string;           // store hash, never raw password
   name: string;
-  status: string;            // e.g., 'active' | 'invited' | 'disabled'
+  status: string;                 // 'active' | 'inactive'
+  subscriptionTier: string;       // 'free' | 'pro' | 'lifetime'
+  subscriptionExpiresAt?: Date | null; // null for free/lifetime, date for pro
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

@@ -17,28 +17,38 @@ export const loginRoutes: ServerRoute [] = [
     method: 'POST',
     path: '/login',
     handler: async (request: Request, h: ResponseToolkit) => {
-      // Change username to email:
-      const { email, password } = request.payload as { email: string; password: string };
+      try {
+        console.log('🔵 Login request received:', request.payload);
+        // Change username to email:
+        const { email, password } = request.payload as { email: string; password: string };
 
-      const { isValid, credentials: user, token } = await AuthService.validateUser(request, email, password, h);
-      
-      if (!isValid) {
-        return h.response({ message: "Invalid credentials" }).code(401);
-      }
+        const { isValid, credentials: user, token } = await AuthService.validateUser(request, email, password, h);
+        
+        if (!isValid) {
+          console.log('❌ Invalid credentials for:', email);
+          return h.response({ message: "Invalid credentials" }).code(401);
+        }
 
-      // user must activate account through email verification first
-      if (user && user.status !== 'active') {
-        return h.response({
-          error: 'USER_INACTIVE',
-          message: 'Please verify your email to activate your account.',
-        }).code(403);
-      }
+        // user must activate account through email verification first
+        if (user && user.status !== 'active') {
+          console.log('❌ User inactive', email);
+          return h.response({
+            error: 'USER_INACTIVE',
+            message: 'Please verify your email to activate your account.',
+          }).code(403);
+        }
 
-      if (user) {
-        return h.response({ token, user: user }).code(200);
+        if (user) {
+          console.log('✅ Login successful:', email);
+          return h.response({ token, user: user }).code(200);
+        }
+        
+        console.log('❌ No user found:', email);
+        return h.response({ message: 'No user found' }).code(404);
+      } catch (error) {
+        console.error('❌❌❌ LOGIN ERROR:', error);
+        throw error; 
       }
-  
-      return h.response({ message: 'No user found' }).code(404);
     },
     options: { auth: false }
   },

@@ -1,0 +1,57 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # PostgreSQL database for Tower of Babble
+  postgres:
+    image: postgres:15-alpine
+    container_name: tob-postgres
+    environment:
+      POSTGRES_USER: tobapp
+      POSTGRES_PASSWORD: tobapp
+      POSTGRES_DB: towerofbabble
+    ports:
+      - "5434:5432"  # External:Internal - avoiding conflicts with other services (5432, 5433 in use)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tobapp -d towerofbabble"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tob-network
+
+  # Backend API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: tob-api
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+      DATABASE_URL: postgres://tobapp:tobapp@postgres:5432/towerofbabble
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3004:3004"  # External:Internal - using 3004 to avoid conflicts (3001-3003 in use)
+    volumes:
+      - ./src:/app/src  # Hot reload source code
+      - ./dist:/app/dist
+      - /app/node_modules  # Don't overwrite node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: npm run dev
+    networks:
+      - tob-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tob-network:
+    driver: bridge

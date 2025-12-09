@@ -1,24 +1,63 @@
-# Simple single-stage Dockerfile
-FROM node:18-alpine
+# Dockerfile for Tower of Babble Backend
+# Multi-stage build: development vs production
+
+# ============================================
+# Development Stage
+# ============================================
+FROM node:18-alpine AS development
 
 WORKDIR /app
 
-# 1. Copy package.json and lock
+# Install dependencies
 COPY package*.json ./
-
-# 2. Install ALL dependencies (including dev), so we have tsc and ts-node
 RUN npm install
 
-# 3. Copy the rest of the code
+# Copy source code
 COPY . .
 
-# 4. Build TypeScript (puts compiled .js into dist/)
+# Expose port
+EXPOSE 3004
+
+# Development command (with hot reload)
+CMD ["npm", "run", "dev"]
+
+# ============================================
+# Production Build Stage
+# ============================================
+FROM node:18-alpine AS build
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install ALL dependencies (including devDependencies for build)
+RUN npm ci
+
+# Copy source
+COPY . .
+
+# Build TypeScript
 RUN npm run build
 
-# 5. Expose the port (just for clarity)
-EXPOSE 3000
+# ============================================
+# Production Stage
+# ============================================
+FROM node:18-alpine AS production
 
-# 6. Default command: start the server
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production
+
+# Copy built artifacts from build stage
+COPY --from=build /app/dist ./dist
+
+# Expose port
+EXPOSE 3004
+
+# Production command
 CMD ["npm", "run", "start"]
-
-    

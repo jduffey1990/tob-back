@@ -1,7 +1,3 @@
-// src/scripts/seedUsers.ts - FIRST LINE
-import dotenv from 'dotenv';
-dotenv.config();
-
 // src/scripts/seedUsersAndPrayers.ts
 import bcrypt from 'bcrypt';
 import { PostgresService } from '../controllers/postgres.service';
