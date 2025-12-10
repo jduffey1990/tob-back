@@ -114,10 +114,10 @@ describe('PostgresService', () => {
 
       expect(Pool).toHaveBeenCalledWith({
         host: 'localhost',
-        port: 5432,
-        user: 'postgres',
-        password: undefined,
-        database: 'busterbrackets',
+        port: 5434,
+        user: 'tobapp',
+        password: 'tobapp',
+        database: 'towerofbabble',
       });
     });
 

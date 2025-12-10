@@ -43,10 +43,11 @@ describe('AuthService', () => {
 
     const mockUserRow = {
       id: '123e4567-e89b-12d3-a456-426614174000',
-      company_id: '123e4567-e89b-12d3-a456-426614174001',
       email: 'user@example.com',
       name: 'Test User',
       status: 'active',
+      subscription_tier: 'free',
+      subscription_expires_at: null,
       deleted_at: null,
       created_at: new Date('2024-01-01'),
       updated_at: new Date('2024-01-01'),
@@ -71,17 +72,24 @@ describe('AuthService', () => {
       );
       expect(bcrypt.compare).toHaveBeenCalledWith(validPassword, hashedPassword);
       expect(Jwt.token.generate).toHaveBeenCalledWith(
-        { id: mockUserRow.id, email: mockUserRow.email },
-        expect.any(String)
+        expect.objectContaining({
+          id: mockUserRow.id,
+          email: mockUserRow.email,
+          name: mockUserRow.name,
+          subscriptionTier: mockUserRow.subscription_tier
+        }),
+        expect.anything(),
+        expect.anything()
       );
       expect(result).toEqual({
         isValid: true,
         credentials: {
           id: mockUserRow.id,
-          companyId: mockUserRow.company_id,
           email: mockUserRow.email,
           name: mockUserRow.name,
           status: mockUserRow.status,
+          subscriptionTier: mockUserRow.subscription_tier,
+          subscriptionExpiresAt: null,
           deletedAt: null,
           createdAt: mockUserRow.created_at,
           updatedAt: mockUserRow.updated_at,
@@ -156,9 +164,13 @@ describe('AuthService', () => {
       expect(result.credentials).not.toHaveProperty('password_hash');
     });
 
-    it('should handle user with null company_id', async () => {
-      const userWithoutCompany = { ...mockUserRow, company_id: null };
-      mockDb.query.mockResolvedValue({ rows: [userWithoutCompany] });
+    it('should handle Pro user with expiration date', async () => {
+      const proUser = {
+        ...mockUserRow,
+        subscription_tier: 'pro',
+        subscription_expires_at: new Date('2026-12-31'),
+      };
+      mockDb.query.mockResolvedValue({ rows: [proUser] });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       (Jwt.token.generate as jest.Mock).mockReturnValue('mock-jwt-token');
 
@@ -169,7 +181,29 @@ describe('AuthService', () => {
         mockH as ResponseToolkit
       );
 
-      expect(result.credentials?.companyId).toBeNull();
+      expect(result.credentials?.subscriptionTier).toBe('pro');
+      expect(result.credentials?.subscriptionExpiresAt).toEqual(new Date('2026-12-31'));
+    });
+
+    it('should handle Lifetime user', async () => {
+      const lifetimeUser = {
+        ...mockUserRow,
+        subscription_tier: 'lifetime',
+        subscription_expires_at: null,
+      };
+      mockDb.query.mockResolvedValue({ rows: [lifetimeUser] });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (Jwt.token.generate as jest.Mock).mockReturnValue('mock-jwt-token');
+
+      const result = await AuthService.validateUser(
+        mockRequest as Request,
+        validEmail,
+        validPassword,
+        mockH as ResponseToolkit
+      );
+
+      expect(result.credentials?.subscriptionTier).toBe('lifetime');
+      expect(result.credentials?.subscriptionExpiresAt).toBeNull();
     });
 
     it('should propagate database errors', async () => {
@@ -202,8 +236,6 @@ describe('AuthService', () => {
     });
 
     it('should generate token even without JWT_SECRET in env', async () => {
-      // JWT_SECRET is loaded at module import time, so we just verify
-      // that a token is generated regardless
       mockDb.query.mockResolvedValue({ rows: [mockUserRow] });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       (Jwt.token.generate as jest.Mock).mockReturnValue('mock-jwt-token');
@@ -224,10 +256,11 @@ describe('AuthService', () => {
     const mockUserId = '123e4567-e89b-12d3-a456-426614174000';
     const mockUserRow = {
       id: mockUserId,
-      company_id: '123e4567-e89b-12d3-a456-426614174001',
       email: 'user@example.com',
       name: 'Test User',
       status: 'active',
+      subscription_tier: 'free',
+      subscription_expires_at: null,
       deleted_at: null,
       created_at: new Date('2024-01-01'),
       updated_at: new Date('2024-01-01'),
@@ -256,10 +289,11 @@ describe('AuthService', () => {
         isValid: true,
         credentials: {
           id: mockUserRow.id,
-          companyId: mockUserRow.company_id,
           email: mockUserRow.email,
           name: mockUserRow.name,
           status: mockUserRow.status,
+          subscriptionTier: mockUserRow.subscription_tier,
+          subscriptionExpiresAt: null,
           deletedAt: null,
           createdAt: mockUserRow.created_at,
           updatedAt: mockUserRow.updated_at,
@@ -367,20 +401,6 @@ describe('AuthService', () => {
       expect(result.credentials).not.toHaveProperty('password_hash');
     });
 
-    it('should handle user with null company_id', async () => {
-      const userWithoutCompany = { ...mockUserRow, company_id: null };
-      const decoded = { id: mockUserId, email: 'user@example.com' };
-      mockDb.query.mockResolvedValue({ rows: [userWithoutCompany] });
-
-      const result = await AuthService.validateToken(
-        decoded,
-        mockRequest as Request,
-        mockH as ResponseToolkit
-      );
-
-      expect(result.credentials?.companyId).toBeNull();
-    });
-
     it('should handle user with null deleted_at', async () => {
       const decoded = { id: mockUserId, email: 'user@example.com' };
       mockDb.query.mockResolvedValue({ rows: [mockUserRow] });
@@ -409,8 +429,6 @@ describe('AuthService', () => {
     });
 
     it('should return false for unsupported nested payload structures', async () => {
-      // The service only supports 3 levels: decoded.decoded.payload, decoded.payload, or direct
-      // Deeper nesting won't work based on the implementation
       const decoded = {
         decoded: {
           decoded: {
@@ -425,7 +443,6 @@ describe('AuthService', () => {
         mockH as ResponseToolkit
       );
 
-      // This should return false because the payload extraction won't find the id
       expect(result.isValid).toBe(false);
       expect(mockDb.query).not.toHaveBeenCalled();
     });
@@ -435,6 +452,7 @@ describe('AuthService', () => {
         payload: {
           id: mockUserId,
           email: 'user@example.com',
+          subscriptionTier: 'pro',
           extra: 'field',
           another: 'value',
         },
@@ -457,10 +475,11 @@ describe('AuthService', () => {
     it('should correctly map snake_case to camelCase', async () => {
       const mockUserRow = {
         id: '123e4567-e89b-12d3-a456-426614174000',
-        company_id: '123e4567-e89b-12d3-a456-426614174001',
         email: 'user@example.com',
         name: 'Test User',
         status: 'active',
+        subscription_tier: 'pro',
+        subscription_expires_at: new Date('2026-12-31'),
         deleted_at: new Date('2024-01-15'),
         created_at: new Date('2024-01-01'),
         updated_at: new Date('2024-01-02'),
@@ -480,10 +499,11 @@ describe('AuthService', () => {
 
       expect(result.credentials).toEqual({
         id: mockUserRow.id,
-        companyId: mockUserRow.company_id,
         email: mockUserRow.email,
         name: mockUserRow.name,
         status: mockUserRow.status,
+        subscriptionTier: mockUserRow.subscription_tier,
+        subscriptionExpiresAt: mockUserRow.subscription_expires_at,
         deletedAt: mockUserRow.deleted_at,
         createdAt: mockUserRow.created_at,
         updatedAt: mockUserRow.updated_at,
