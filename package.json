@@ -12,6 +12,7 @@
     "migrate:down": "dotenv -e .env -- node-pg-migrate down -m src/migrations",
     "migrate:reset": "dotenv -e .env -- node-pg-migrate reset -m src/migrations",
     "seed:users": "npm run build && node dist/scripts/seedUsers.js",
+    "seed:pois": "npm run build && node dist/scripts/seedPrayOnIts.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

@@ -19,13 +19,18 @@ jordanduffey@Mac tobback % tree -I node_modules
 │   │   ├── tokenRoutes.js
 │   │   └── userRoutes.js
 │   ├── scripts
+│   │   ├── seedAllEntry.js
 │   │   └── seedUsers.js
 │   └── tests
 │       ├── authService.test.js
 │       ├── postgresService.test.js
 │       └── userService.test.js
+├── DOCKER_SETUP.md
+├── docker-compose.yml
 ├── Dockerfile
+├── init-db.sql
 ├── jest.config.js
+├── Makefile
 ├── package-lock.json
 ├── package.json
 ├── README.md
@@ -35,31 +40,44 @@ jordanduffey@Mac tobback % tree -I node_modules
 │   │   ├── authService.ts
 │   │   ├── email.service.ts
 │   │   ├── postgres.service.ts
+│   │   ├── prayerLimitService.ts
+│   │   ├── prayerService.ts
 │   │   ├── redis.service.ts
 │   │   ├── tokenService.ts
 │   │   └── userService.ts
 │   ├── migrations
-│   │   ├── 1760475007403_create-users-table.js
-│   │   └── 1763143382536_tokentable.js
+│   │   ├── 1765231026799_users-prayers-tokens.js
+│   │   └── 1765247785790_drop-credits.js
 │   ├── models
+│   │   ├── prayer.ts
 │   │   └── user.ts
+│   ├── public
+│   │   └── activation-succes.html
 │   ├── routes
 │   │   ├── index.ts
 │   │   ├── loginRoutes.ts
+│   │   ├── prayerRoutes.ts
 │   │   ├── tokenRoutes.ts
 │   │   └── userRoutes.ts
 │   ├── scripts
+│   │   ├── seedAllEntry.ts
 │   │   └── seedUsers.ts
 │   └── tests
 │       ├── authService.test.ts
 │       ├── postgresService.test.ts
+│       ├── prayerService.test.ts
 │       └── userService.test.ts
 ├── terraform
 │   ├── backend.tf
 │   ├── iam.tf
 │   ├── main.tf
 │   ├── outputs.tf
+│   ├── placeholder.zip
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
 │   ├── terraform.tfvars
 │   ├── terraform.tfvars.example
 │   └── variables.tf
-└── tsconfig.json
+├── terraformmain.txt
+├── tsconfig.json
+└── ztree.txt

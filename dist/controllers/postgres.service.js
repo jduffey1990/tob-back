@@ -39,10 +39,10 @@ class PostgresService {
             }
             : {
                 host: process.env.PGHOST || 'localhost',
-                port: Number(process.env.PGPORT || 5432),
-                user: process.env.PGUSER || 'postgres',
-                password: process.env.PGPASSWORD || undefined,
-                database: process.env.PGDATABASE || 'busterbrackets',
+                port: Number(process.env.PGPORT || 5434),
+                user: process.env.PGUSER || 'tobapp',
+                password: process.env.PGPASSWORD || 'tobapp',
+                database: process.env.PGDATABASE || 'towerofbabble',
             };
         this.pool = new pg_1.Pool(Object.assign(Object.assign({}, base), config));
         this.pool.on('error', (err) => {

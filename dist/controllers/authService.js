@@ -24,10 +24,11 @@ function rowToUserSafe(row) {
     var _a, _b;
     return {
         id: row.id,
-        companyId: (_a = row.company_id) !== null && _a !== void 0 ? _a : null,
         email: row.email,
         name: row.name,
         status: row.status,
+        subscriptionTier: row.subscription_tier,
+        subscriptionExpiresAt: (_a = row.subscription_expires_at) !== null && _a !== void 0 ? _a : null,
         deletedAt: (_b = row.deleted_at) !== null && _b !== void 0 ? _b : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -42,7 +43,8 @@ class AuthService {
             const db = postgres_service_1.PostgresService.getInstance();
             try {
                 // Load the user by email (case-insensitive), include password_hash for verification
-                const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at, password_hash
+                const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+                deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`, [email]);
@@ -61,13 +63,13 @@ class AuthService {
                 const token = jwt_1.default.token.generate({
                     id: safe.id,
                     email: safe.email,
-                    companyId: safe.companyId,
-                    name: safe.name
+                    name: safe.name,
+                    subscriptionTier: safe.subscriptionTier
                 }, {
                     key: jwtSecret,
                     algorithm: 'HS256'
                 }, {
-                    ttlSec: 7 * 24 * 60 * 60 // ✅ 7 days expiration
+                    ttlSec: 7 * 24 * 60 * 60 // âœ… 7 days expiration
                 });
                 return { isValid: true, credentials: safe, token };
             }
@@ -89,7 +91,8 @@ class AuthService {
             if (!userId)
                 return { isValid: false };
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`, [userId]);

@@ -21,6 +21,7 @@ const postgres_service_1 = require("./controllers/postgres.service");
 const authService_1 = require("./controllers/authService");
 const loginRoutes_1 = require("./routes/loginRoutes");
 const userRoutes_1 = require("./routes/userRoutes");
+const prayerRoutes_1 = require("./routes/prayerRoutes");
 const tokenRoutes_1 = require("./routes/tokenRoutes");
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -38,8 +39,8 @@ const allRoutes = asServerRoutes([
     ...loginRoutes_1.homeRoutes,
     ...loginRoutes_1.loginRoutes,
     ...tokenRoutes_1.tokenRoutes,
+    ...prayerRoutes_1.prayerRoutes,
 ]);
-console.log("here are the routes we have:", allRoutes);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {
         const server = hapi_1.default.server({

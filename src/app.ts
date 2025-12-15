@@ -10,6 +10,7 @@ import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { userRoutes } from './routes/userRoutes'
 import { prayerRoutes } from './routes/prayerRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
+import { prayOnItRoutes } from './routes/prayOnItRoutes';
 import { url } from 'inspector'
 
 dotenv.config()
@@ -33,6 +34,7 @@ const allRoutes = asServerRoutes([
   ...loginRoutes as unknown as ServerRoute[],
   ...tokenRoutes as unknown as ServerRoute[],
   ...prayerRoutes as unknown as ServerRoute[],
+  ...prayOnItRoutes as unknown as ServerRoute[],
 ])
 
 async function buildServer() {

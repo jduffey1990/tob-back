@@ -98,8 +98,9 @@ exports.userRoutes = [
                 if (!(authUser === null || authUser === void 0 ? void 0 : authUser.id))
                     return h.response({ error: 'Unauthorized' }).code(401);
                 const payload = request.payload;
-                // If firstName/lastName provided, convert to name
+                // Build updates object
                 const updates = Object.assign({}, payload);
+                // If firstName/lastName provided, convert to name
                 if (payload.firstName || payload.lastName) {
                     const firstName = payload.firstName || authUser.name.split(' ')[0] || '';
                     const lastName = payload.lastName || authUser.name.split(' ').slice(1).join(' ') || '';
@@ -107,6 +108,8 @@ exports.userRoutes = [
                     delete updates.firstName;
                     delete updates.lastName;
                 }
+                // Call the dynamic updateUser service
+                // It will only update fields that are present in the updates object
                 const updatedUser = yield userService_1.UserService.updateUser(authUser.id, updates);
                 return h.response(updatedUser).code(200);
             }
@@ -150,36 +153,40 @@ exports.userRoutes = [
         method: 'POST',
         path: '/create-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
-            var _a, _b, _c, _d, _e;
-            const startTime = Date.now();
+            var _a, _b, _c, _d;
             try {
                 const payload = request.payload;
-                const captchaStart = Date.now();
+                // Verify captcha (optional - can be disabled in dev)
                 yield verifyCaptcha(payload.captchaToken, 0.5);
-                // ... validation ...
+                // Parse name from either 'name' field or 'firstName' + 'lastName'
                 const name = ((_a = payload.name) === null || _a === void 0 ? void 0 : _a.toString().trim()) ||
                     `${(_b = payload.firstName) !== null && _b !== void 0 ? _b : ''} ${(_c = payload.lastName) !== null && _c !== void 0 ? _c : ''}`.trim();
+                // Validate required fields
                 if (!payload.email || !payload.password || !name) {
                     return h
                         .response({ error: 'email, password, and name are required' })
                         .code(400);
                 }
-                const hashStart = Date.now();
+                // Hash password (8 rounds is fine for bcrypt)
                 const passwordHash = yield bcrypt_1.default.hash(payload.password, 8);
-                const dbStart = Date.now();
+                // Create user
+                // Note: subscriptionTier defaults to 'free' in DB
+                //       subscriptionExpiresAt defaults to NULL
+                //       status set to 'inactive' (requires email verification)
                 const newUser = yield userService_1.UserService.createUser({
                     email: payload.email.toLowerCase(),
                     name,
                     passwordHash,
-                    companyId: (_d = payload.companyId) !== null && _d !== void 0 ? _d : null,
                     status: "inactive"
                 });
+                // TODO: Send activation email here
+                // await EmailService.sendActivationEmail(newUser.email, activationToken);
                 return h.response(newUser).code(201);
             }
             catch (error) {
                 console.error('Create user error:', error);
                 // Handle duplicate email
-                if ((_e = error.message) === null || _e === void 0 ? void 0 : _e.includes('duplicate key')) {
+                if ((_d = error.message) === null || _d === void 0 ? void 0 : _d.includes('duplicate key')) {
                     return h.response({
                         error: 'An account with this email already exists'
                     }).code(409);
@@ -190,6 +197,7 @@ exports.userRoutes = [
                 }).code(500);
             }
         }),
+        options: { auth: false }
     },
     // Return the current session's user (already validated by @hapi/jwt)
     {

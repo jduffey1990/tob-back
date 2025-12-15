@@ -103,10 +103,10 @@ describe('PostgresService', () => {
             service.connect();
             expect(pg_1.Pool).toHaveBeenCalledWith({
                 host: 'localhost',
-                port: 5432,
-                user: 'postgres',
-                password: undefined,
-                database: 'busterbrackets',
+                port: 5434,
+                user: 'tobapp',
+                password: 'tobapp',
+                database: 'towerofbabble',
             });
         });
         it('should merge custom config with base config', () => {

@@ -13,16 +13,17 @@ exports.UserService = void 0;
 // src/controllers/userService.ts
 const postgres_service_1 = require("./postgres.service");
 // Map db row -> UserSafe (snake_case -> camelCase)
-function mapRowToUser(row) {
+function mapRowToUserSafe(row) {
     var _a, _b;
     return {
         id: row.id,
-        companyId: (_a = row.company_id) !== null && _a !== void 0 ? _a : null,
         email: row.email,
         name: row.name,
         status: row.status,
+        subscriptionTier: row.subscription_tier,
+        subscriptionExpiresAt: (_a = row.subscription_expires_at) !== null && _a !== void 0 ? _a : null,
         deletedAt: (_b = row.deleted_at) !== null && _b !== void 0 ? _b : null,
-        createdAt: row.created_at, // node-postgres returns Date for timestamptz
+        createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
 }
@@ -33,10 +34,11 @@ class UserService {
     static findAllUsers() {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`);
-            return rows.map(mapRowToUser);
+            return rows.map(mapRowToUserSafe);
         });
     }
     /**
@@ -45,11 +47,12 @@ class UserService {
     static findUserById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`, [id]);
-            return rows[0] ? mapRowToUser(rows[0]) : null;
+            return rows[0] ? mapRowToUserSafe(rows[0]) : null;
         });
     }
     /**
@@ -58,11 +61,12 @@ class UserService {
     static findUserByEmail(email) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, company_id, email, name, status, deleted_at, created_at, updated_at
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+              deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
         LIMIT 1`, [email]);
-            return rows[0] ? mapRowToUser(rows[0]) : null;
+            return rows[0] ? mapRowToUserSafe(rows[0]) : null;
         });
     }
     /**
@@ -71,15 +75,15 @@ class UserService {
      */
     static createUser(input) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b;
+            var _a;
             const db = postgres_service_1.PostgresService.getInstance();
-            const companyId = (_a = input.companyId) !== null && _a !== void 0 ? _a : null;
-            const status = (_b = input.status) !== null && _b !== void 0 ? _b : 'active';
+            const status = (_a = input.status) !== null && _a !== void 0 ? _a : 'active';
             try {
-                const { rows } = yield db.query(`INSERT INTO users (company_id, email, password_hash, name, status)
-         VALUES ($1::uuid, $2, $3, $4, $5)
-         RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`, [companyId, input.email, input.passwordHash, input.name, status]);
-                return mapRowToUser(rows[0]);
+                const { rows } = yield db.query(`INSERT INTO users (email, password_hash, name, status)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                   deleted_at, created_at, updated_at`, [input.email, input.passwordHash, input.name, status]);
+                return mapRowToUserSafe(rows[0]);
             }
             catch (err) {
                 if ((err === null || err === void 0 ? void 0 : err.code) === '23505') {
@@ -91,15 +95,12 @@ class UserService {
         });
     }
     /**
-     * Update user basic info by id (name + email).
-     */
-    /**
      * Update user fields dynamically - only updates fields that are provided
      */
     static updateUser(userId, updates) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            // Filter out undefined values (but keep null for companyId)
+            // Filter out undefined values (but keep null for subscriptionExpiresAt)
             const fields = Object.entries(updates).filter(([_, value]) => value !== undefined);
             if (fields.length === 0) {
                 throw new Error('No fields to update');
@@ -117,12 +118,13 @@ class UserService {
       SET ${setClauses.join(', ')},
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
-      RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                deleted_at, created_at, updated_at
     `;
             const { rows } = yield db.query(query, values);
             if (!rows[0])
                 throw new Error('User not found');
-            return mapRowToUser(rows[0]);
+            return mapRowToUserSafe(rows[0]);
         });
     }
     /** Flip user status to 'active' (only from 'inactive') and return the safe user. */
@@ -133,13 +135,13 @@ class UserService {
           SET status = 'active'
         WHERE id = $1::uuid
           AND status = 'inactive'
-        RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`, [userId]);
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                  deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0]) {
                 // Not found OR already active/disabled
                 throw new Error('Activation failed: user not found or already active');
             }
-            // reuse your existing row→safe mapper if exported
-            return mapRowToUser(rows[0]);
+            return mapRowToUserSafe(rows[0]);
         });
     }
     /**
@@ -151,12 +153,16 @@ class UserService {
             const { rows } = yield db.query(`UPDATE users
           SET deleted_at = NOW()
         WHERE id = $1::uuid
-        RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`, [userId]);
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                  deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0])
                 throw new Error('User not found');
-            return mapRowToUser(rows[0]);
+            return mapRowToUserSafe(rows[0]);
         });
     }
+    /**
+     * Hard delete: actually remove the row from the database.
+     */
     static hardDelete(userId) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
@@ -169,6 +175,7 @@ class UserService {
     }
     /**
      * Example: mark user paid based on Stripe PaymentIntent (idempotent pattern).
+     * NOTE: This assumes you have a payments table - adjust as needed for your subscription system
      */
     static markUserPaidFromIntent(userId, paymentIntentId) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -181,10 +188,11 @@ class UserService {
                 const { rows } = yield tx.query(`UPDATE users
             SET updated_at = NOW()
           WHERE id = $1::uuid
-          RETURNING id, company_id, email, name, status, deleted_at, created_at, updated_at`, [userId]);
+          RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                    deleted_at, created_at, updated_at`, [userId]);
                 if (!rows[0])
                     throw new Error('User not found');
-                return mapRowToUser(rows[0]);
+                return mapRowToUserSafe(rows[0]);
             }));
         });
     }
