@@ -149,7 +149,9 @@ export class PrayerService {
    */
   public static async recordPlayback(prayerId: string, userId: string): Promise<Prayer> {
     const db = PostgresService.getInstance();
-    
+
+    console.log("look for this prayer", prayerId)
+    console.log("look for this user", userId)
     const { rows } = await db.query(
       `UPDATE prayers
        SET play_count = play_count + 1,

@@ -2,10 +2,11 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import axios from 'axios';
 import bcrypt from 'bcrypt';
-import { EmailService } from '../controllers/email.service';
 import { randomBytes } from 'crypto';
 
+import { EmailService } from '../controllers/email.service';
 import { UserService } from '../controllers/userService';
+import { UserSettings } from '../models/user';
 import type { UserSafe } from '../models/user'; // our TS model (id is string UUID)
 
 
@@ -263,5 +264,63 @@ export const userRoutes : ServerRoute[] = [
       description: '⚠️ DEV ONLY: Permanently delete user'
     },
   },
+
+  // PATCH /users/me/settings - Update authenticated user's settings
+  {
+    method: 'PATCH',
+    path: '/users/me/settings',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe | undefined;
+        if (!authUser?.id) {
+          return h.response({ error: 'Unauthorized' }).code(401);
+        }
+
+        const payload = request.payload as Partial<UserSettings>;
+        
+        // Validate payload
+        if (payload.voiceIndex !== undefined && typeof payload.voiceIndex !== 'number') {
+          return h.response({ error: 'voiceIndex must be a number' }).code(400);
+        }
+        
+        if (payload.playbackRate !== undefined && typeof payload.playbackRate !== 'number') {
+          return h.response({ error: 'playbackRate must be a number' }).code(400);
+        }
+
+        const updatedUser = await UserService.updateSettings(authUser.id, payload);
+        
+        return h.response(updatedUser).code(200);
+      } catch (err: any) {
+        console.error('Error updating settings:', err);
+        return h.response({ error: err.message || 'Failed to update settings' }).code(400);
+      }
+    },
+    options: { auth: 'jwt' },
+  },
+
+  // GET /users/me/settings - Get authenticated user's settings
+  {
+    method: 'GET',
+    path: '/users/me/settings',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe | undefined;
+        if (!authUser?.id) {
+          return h.response({ error: 'Unauthorized' }).code(401);
+        }
+
+        const user = await UserService.findUserById(authUser.id);
+        if (!user) {
+          return h.response({ error: 'User not found' }).code(404);
+        }
+
+        return h.response(user.settings).code(200);
+      } catch (err: any) {
+        console.error('Error fetching settings:', err);
+        return h.response({ error: 'Failed to fetch settings' }).code(500);
+      }
+    },
+    options: { auth: 'jwt' },
+  }
 
 ];

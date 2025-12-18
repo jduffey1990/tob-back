@@ -1,4 +1,21 @@
 // src/models/user.ts
+
+/**
+ * User settings stored in JSONB column
+ */
+export interface UserSettings {
+  voiceIndex: number;        // 0-8 depending on tier (0=default)
+  playbackRate: number;      // 0.0-1.0, where 0.5 = normal iOS speech rate
+}
+
+/**
+ * Default settings for new users
+ */
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  voiceIndex: 0,
+  playbackRate: 0.5
+};
+
 export interface User {
   id: string;                     // uuid
   email: string;
@@ -7,6 +24,7 @@ export interface User {
   status: string;                 // 'active' | 'inactive'
   subscriptionTier: string;       // 'free' | 'pro' | 'lifetime'
   subscriptionExpiresAt?: Date | null; // null for free/lifetime, date for pro
+  settings: UserSettings;         // NEW: User preferences
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

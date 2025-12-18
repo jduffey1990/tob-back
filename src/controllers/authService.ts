@@ -4,7 +4,7 @@ import Jwt from '@hapi/jwt';
 import dotenv from 'dotenv';
 import { Request, ResponseToolkit } from '@hapi/hapi';
 import { PostgresService } from './postgres.service';
-import { User, UserSafe } from '../models/user';
+import { User, UserSafe, DEFAULT_USER_SETTINGS } from '../models/user';
 
 dotenv.config();
 const jwtSecret = process.env.JWT_SECRET || '';
@@ -17,6 +17,7 @@ function rowToUserSafe(row: any): UserSafe {
     status: row.status,
     subscriptionTier: row.subscription_tier,
     subscriptionExpiresAt: row.subscription_expires_at ?? null,
+    settings: row.settings ?? DEFAULT_USER_SETTINGS,  // NEW!
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -40,7 +41,7 @@ export class AuthService {
       // Load the user by email (case-insensitive), include password_hash for verification
       const { rows } = await db.query(
         `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-                deleted_at, created_at, updated_at, password_hash
+                settings, deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`,
@@ -106,7 +107,7 @@ export class AuthService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              deleted_at, created_at, updated_at
+              settings, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
