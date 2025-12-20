@@ -35,6 +35,8 @@ services:
       DATABASE_URL: postgres://tobapp:tobapp@postgres:5432/towerofbabble
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
     ports:
       - "3004:3004"  # External:Internal - using 3004 to avoid conflicts (3001-3003 in use)
     volumes:

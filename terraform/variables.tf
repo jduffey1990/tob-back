@@ -101,3 +101,9 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
 }
+
+variable "openai_api_key" {
+  description = "API key for open AI chat completion"
+  type        = string
+  sensitive   = true
+}

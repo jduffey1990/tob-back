@@ -36,8 +36,7 @@ describe('PrayerService', () => {
           play_count: 5,
           last_played_at: new Date('2024-01-15'),
           created_at: new Date('2024-01-02'),
-          updated_at: new Date('2024-01-15'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-15')
         },
         {
           id: '123e4567-e89b-12d3-a456-426614174001',
@@ -49,8 +48,7 @@ describe('PrayerService', () => {
           play_count: 3,
           last_played_at: new Date('2024-01-14'),
           created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-14'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-14')
         },
       ];
 
@@ -61,10 +59,6 @@ describe('PrayerService', () => {
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('WHERE user_id = $1::uuid'),
         ['user-123']
-      );
-      expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('AND deleted_at IS NULL'),
-        expect.anything()
       );
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('ORDER BY created_at DESC'),
@@ -106,8 +100,7 @@ describe('PrayerService', () => {
           play_count: 0,
           last_played_at: null,
           created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-01')
         },
       ];
 
@@ -132,8 +125,7 @@ describe('PrayerService', () => {
         play_count: 10,
         last_played_at: new Date('2024-01-15'),
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -200,8 +192,7 @@ describe('PrayerService', () => {
         play_count: 0,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-01')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -238,8 +229,7 @@ describe('PrayerService', () => {
         play_count: 0,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-01')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -270,8 +260,7 @@ describe('PrayerService', () => {
         play_count: 0,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-01')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -300,8 +289,7 @@ describe('PrayerService', () => {
         play_count: 0,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-01')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -334,8 +322,7 @@ describe('PrayerService', () => {
         play_count: 5,
         last_played_at: new Date('2024-01-10'),
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -370,8 +357,7 @@ describe('PrayerService', () => {
         play_count: 5,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -434,8 +420,7 @@ describe('PrayerService', () => {
         play_count: 5,
         last_played_at: null,
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -473,13 +458,13 @@ describe('PrayerService', () => {
   });
 
   describe('deletePrayer', () => {
-    it('should soft delete a prayer', async () => {
+    it('should hard delete a prayer', async () => {
       mockDb.query.mockResolvedValue({ rowCount: 1 });
 
       await PrayerService.deletePrayer('prayer-123', 'user-123');
 
       expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('SET deleted_at = NOW()'),
+        expect.stringContaining('DELETE FROM prayers'),
         ['prayer-123', 'user-123']
       );
       expect(mockDb.query).toHaveBeenCalledWith(
@@ -497,7 +482,7 @@ describe('PrayerService', () => {
 
       await expect(
         PrayerService.deletePrayer('nonexistent-prayer', 'user-123')
-      ).rejects.toThrow('Prayer not found or already deleted');
+      ).rejects.toThrow('Prayer not found');
     });
 
     it('should throw error when prayer belongs to different user', async () => {
@@ -505,15 +490,7 @@ describe('PrayerService', () => {
 
       await expect(
         PrayerService.deletePrayer('prayer-123', 'wrong-user')
-      ).rejects.toThrow('Prayer not found or already deleted');
-    });
-
-    it('should throw error when prayer already deleted', async () => {
-      mockDb.query.mockResolvedValue({ rowCount: 0 });
-
-      await expect(
-        PrayerService.deletePrayer('deleted-prayer', 'user-123')
-      ).rejects.toThrow('Prayer not found or already deleted');
+      ).rejects.toThrow('Prayer not found');
     });
   });
 
@@ -529,8 +506,7 @@ describe('PrayerService', () => {
         play_count: 6,
         last_played_at: new Date('2024-01-15T10:30:00Z'),
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15T10:30:00Z'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15T10:30:00Z')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -580,8 +556,7 @@ describe('PrayerService', () => {
         play_count: 1,
         last_played_at: new Date('2024-01-15T10:30:00Z'),
         created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-15T10:30:00Z'),
-        deleted_at: null,
+        updated_at: new Date('2024-01-15T10:30:00Z')
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -606,8 +581,7 @@ describe('PrayerService', () => {
           play_count: 100,
           last_played_at: null,
           created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-01')
         },
         {
           id: 'template-2',
@@ -619,8 +593,7 @@ describe('PrayerService', () => {
           play_count: 150,
           last_played_at: null,
           created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-01')
         },
       ];
 
@@ -630,10 +603,6 @@ describe('PrayerService', () => {
 
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('WHERE is_template = true'),
-        undefined
-      );
-      expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('AND deleted_at IS NULL'),
         undefined
       );
       expect(mockDb.query).toHaveBeenCalledWith(
@@ -665,8 +634,7 @@ describe('PrayerService', () => {
           play_count: 50,
           last_played_at: null,
           created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01'),
-          deleted_at: null,
+          updated_at: new Date('2024-01-01')
         },
       ];
 
@@ -675,7 +643,6 @@ describe('PrayerService', () => {
       const result = await PrayerService.getPrayerTemplates();
 
       expect(result).toHaveLength(1);
-      expect(result[0].deletedAt).toBeNull();
     });
   });
 
@@ -693,10 +660,6 @@ describe('PrayerService', () => {
       );
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('WHERE user_id = $1::uuid'),
-        expect.anything()
-      );
-      expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('AND deleted_at IS NULL'),
         expect.anything()
       );
       expect(result).toBe(5);

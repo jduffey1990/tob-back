@@ -233,4 +233,55 @@ exports.userRoutes = [
             description: '⚠️ DEV ONLY: Permanently delete user'
         },
     },
+    // PATCH /users/me/settings - Update authenticated user's settings
+    {
+        method: 'PATCH',
+        path: '/users/me/settings',
+        handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const authUser = request.auth.credentials;
+                if (!(authUser === null || authUser === void 0 ? void 0 : authUser.id)) {
+                    return h.response({ error: 'Unauthorized' }).code(401);
+                }
+                const payload = request.payload;
+                // Validate payload
+                if (payload.voiceIndex !== undefined && typeof payload.voiceIndex !== 'number') {
+                    return h.response({ error: 'voiceIndex must be a number' }).code(400);
+                }
+                if (payload.playbackRate !== undefined && typeof payload.playbackRate !== 'number') {
+                    return h.response({ error: 'playbackRate must be a number' }).code(400);
+                }
+                const updatedUser = yield userService_1.UserService.updateSettings(authUser.id, payload);
+                return h.response(updatedUser).code(200);
+            }
+            catch (err) {
+                console.error('Error updating settings:', err);
+                return h.response({ error: err.message || 'Failed to update settings' }).code(400);
+            }
+        }),
+        options: { auth: 'jwt' },
+    },
+    // GET /users/me/settings - Get authenticated user's settings
+    {
+        method: 'GET',
+        path: '/users/me/settings',
+        handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const authUser = request.auth.credentials;
+                if (!(authUser === null || authUser === void 0 ? void 0 : authUser.id)) {
+                    return h.response({ error: 'Unauthorized' }).code(401);
+                }
+                const user = yield userService_1.UserService.findUserById(authUser.id);
+                if (!user) {
+                    return h.response({ error: 'User not found' }).code(404);
+                }
+                return h.response(user.settings).code(200);
+            }
+            catch (err) {
+                console.error('Error fetching settings:', err);
+                return h.response({ error: 'Failed to fetch settings' }).code(500);
+            }
+        }),
+        options: { auth: 'jwt' },
+    }
 ];

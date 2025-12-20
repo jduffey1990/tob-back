@@ -9,7 +9,6 @@ export interface Prayer {
   lastPlayedAt?: Date | null;     // last time this prayer was played
   createdAt: Date;
   updatedAt: Date;
-  deletedAt?: Date | null;        // soft delete support
 }
 
 export type PrayerSafe = Prayer; // No sensitive fields to exclude

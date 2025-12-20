@@ -38,8 +38,7 @@ export class PrayerLimitService {
     const { rows: prayerRows } = await db.query(
       `SELECT COUNT(*) as count 
        FROM prayers 
-       WHERE user_id = $1::uuid 
-         AND deleted_at IS NULL`,
+       WHERE user_id = $1::uuid`,
       [userId]
     );
 
@@ -116,8 +115,7 @@ export class PrayerLimitService {
     const { rows } = await db.query(
       `SELECT COUNT(*) as count 
        FROM prayers 
-       WHERE user_id = $1::uuid 
-         AND deleted_at IS NULL`,
+       WHERE user_id = $1::uuid`,
       [userId]
     );
 

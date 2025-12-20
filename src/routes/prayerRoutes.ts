@@ -2,7 +2,9 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import { PrayerService } from '../controllers/prayerService';
 import { PrayerLimitService } from '../controllers/prayerLimitService';
+import { AIService } from '../controllers/aiService'
 import type { UserSafe } from '../models/user';
+import { PrayerGenerationRequest } from '../models/aiItems';
 
 export const prayerRoutes: ServerRoute[] = [
   // ============================================
@@ -305,6 +307,74 @@ export const prayerRoutes: ServerRoute[] = [
       auth: 'jwt',
       description: 'Get prayer statistics and limits for current user',
       tags: ['api', 'prayers', 'stats']
+    }
+  },
+
+    // ============================================
+  // POST AI prayers build
+  // ============================================
+  {
+    method: 'POST',
+    path: '/prayers/ai-gen',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const payload = request.payload as PrayerGenerationRequest;
+        
+        // Validate required fields
+        if (!payload.prayerType || !payload.tone || !payload.length || !payload.expansiveness) {
+          return h.response({ 
+            error: 'Missing required fields: prayerType, tone, length, expansiveness' 
+          }).code(400);
+        }
+        
+        if (!payload.prayOnItItems || payload.prayOnItItems.length === 0) {
+          return h.response({ 
+            error: 'At least one Pray On It item is required' 
+          }).code(400);
+        }
+        
+        console.log(`🔵 [Route] Generating AI prayer for user ${authUser.id}`);
+        
+        // Call the AIService
+        const generationResponse = await AIService.generatePrayer(authUser.id, payload);
+        
+        console.log("✅ [Route] AI prayer generated successfully");
+        
+        // Return the response (matches PrayerGenerationResponse interface)
+        return h.response(generationResponse).code(200);
+        
+      } catch (error: any) {
+        console.error('❌ [Route] AI generation error:', error);
+        
+        // Handle specific error types
+        if (error.message.includes('LIMIT_REACHED')) {
+          const message = error.message.replace('LIMIT_REACHED: ', '');
+          return h.response({
+            error: 'AI generation limit reached',
+            message: message,
+            upgradeRequired: true
+          }).code(402); // Payment Required
+        }
+        
+        if (error.message.includes('AI_ERROR')) {
+          const message = error.message.replace('AI_ERROR: ', '');
+          return h.response({
+            error: 'AI service error',
+            message: message
+          }).code(503); // Service Unavailable
+        }
+        
+        // Generic error
+        return h.response({ 
+          error: error.message || 'Failed to generate prayer' 
+        }).code(500);
+      }
+    },
+    options: { 
+      auth: 'jwt',
+      description: 'Generate a prayer using AI based on Pray On It items and preferences',
+      tags: ['api', 'prayers', 'ai']
     }
   },
 ];

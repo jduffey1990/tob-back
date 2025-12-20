@@ -18,10 +18,11 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const jwt_1 = __importDefault(require("@hapi/jwt"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const postgres_service_1 = require("./postgres.service");
+const user_1 = require("../models/user");
 dotenv_1.default.config();
 const jwtSecret = process.env.JWT_SECRET || '';
 function rowToUserSafe(row) {
-    var _a, _b;
+    var _a, _b, _c;
     return {
         id: row.id,
         email: row.email,
@@ -29,7 +30,8 @@ function rowToUserSafe(row) {
         status: row.status,
         subscriptionTier: row.subscription_tier,
         subscriptionExpiresAt: (_a = row.subscription_expires_at) !== null && _a !== void 0 ? _a : null,
-        deletedAt: (_b = row.deleted_at) !== null && _b !== void 0 ? _b : null,
+        settings: (_b = row.settings) !== null && _b !== void 0 ? _b : user_1.DEFAULT_USER_SETTINGS, // NEW!
+        deletedAt: (_c = row.deleted_at) !== null && _c !== void 0 ? _c : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -44,7 +46,7 @@ class AuthService {
             try {
                 // Load the user by email (case-insensitive), include password_hash for verification
                 const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-                deleted_at, created_at, updated_at, password_hash
+                settings, deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`, [email]);
@@ -92,7 +94,7 @@ class AuthService {
                 return { isValid: false };
             const db = postgres_service_1.PostgresService.getInstance();
             const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              deleted_at, created_at, updated_at
+              settings, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`, [userId]);

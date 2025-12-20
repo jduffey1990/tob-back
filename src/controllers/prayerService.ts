@@ -15,7 +15,6 @@ function mapRowToPrayer(row: any): Prayer {
     lastPlayedAt: row.last_played_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    deletedAt: row.deleted_at ?? null,
   };
 }
 
@@ -27,10 +26,9 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count, 
-              last_played_at, created_at, updated_at, deleted_at
+              last_played_at, created_at, updated_at
        FROM prayers
        WHERE user_id = $1::uuid 
-         AND deleted_at IS NULL
        ORDER BY created_at DESC`,
       [userId]
     );
@@ -47,11 +45,10 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, created_at, updated_at, deleted_at
+              last_played_at, created_at, updated_at
        FROM prayers
        WHERE id = $1::uuid 
          AND user_id = $2::uuid
-         AND deleted_at IS NULL
        LIMIT 1`,
       [prayerId, userId]
     );
@@ -68,7 +65,7 @@ export class PrayerService {
       `INSERT INTO prayers (user_id, title, text, category, is_template)
        VALUES ($1::uuid, $2, $3, $4, $5)
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, created_at, updated_at, deleted_at`,
+                 last_played_at, created_at, updated_at`,
       [
         input.userId,
         input.title,
@@ -113,9 +110,8 @@ export class PrayerService {
           updated_at = NOW()
       WHERE id = $${values.length - 1}::uuid
         AND user_id = $${values.length}::uuid
-        AND deleted_at IS NULL
       RETURNING id, user_id, title, text, category, is_template, play_count,
-                last_played_at, created_at, updated_at, deleted_at
+                last_played_at, created_at, updated_at
     `;
     
     const { rows } = await db.query(query, values);
@@ -125,22 +121,20 @@ export class PrayerService {
   }
 
   /**
-   * Soft delete a prayer (only if it belongs to user)
+   * Hard delete a prayer (only if it belongs to user)
    */
   public static async deletePrayer(prayerId: string, userId: string): Promise<void> {
     const db = PostgresService.getInstance();
     
     const { rowCount } = await db.query(
-      `UPDATE prayers
-       SET deleted_at = NOW()
-       WHERE id = $1::uuid 
-         AND user_id = $2::uuid
-         AND deleted_at IS NULL`,
+      `DELETE FROM prayers
+      WHERE id = $1::uuid
+        AND user_id = $2::uuid`,
       [prayerId, userId]
     );
     
     if (rowCount === 0) {
-      throw new Error('Prayer not found or already deleted');
+      throw new Error('Prayer not found');
     }
   }
 
@@ -159,9 +153,8 @@ export class PrayerService {
            updated_at = NOW()
        WHERE id = $1::uuid 
          AND user_id = $2::uuid
-         AND deleted_at IS NULL
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, created_at, updated_at, deleted_at`,
+                 last_played_at, created_at, updated_at`,
       [prayerId, userId]
     );
     
@@ -176,10 +169,9 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, created_at, updated_at, deleted_at
+              last_played_at, created_at, updated_at
        FROM prayers
        WHERE is_template = true
-         AND deleted_at IS NULL
        ORDER BY category, title`
     );
     return rows.map(mapRowToPrayer);
@@ -193,8 +185,7 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT COUNT(*) as count
        FROM prayers
-       WHERE user_id = $1::uuid
-         AND deleted_at IS NULL`,
+       WHERE user_id = $1::uuid`,
       [userId]
     );
     return parseInt(rows[0].count);

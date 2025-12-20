@@ -5,10 +5,12 @@ const userRoutes_1 = require("./userRoutes");
 const loginRoutes_1 = require("./loginRoutes");
 const tokenRoutes_1 = require("./tokenRoutes");
 const prayerRoutes_1 = require("./prayerRoutes");
+const prayOnItRoutes_1 = require("./prayOnItRoutes");
 exports.default = [
     ...userRoutes_1.userRoutes,
     ...loginRoutes_1.homeRoutes,
     ...loginRoutes_1.loginRoutes,
     ...tokenRoutes_1.tokenRoutes,
-    ...prayerRoutes_1.prayerRoutes
+    ...prayerRoutes_1.prayerRoutes,
+    ...prayOnItRoutes_1.prayOnItRoutes
 ];
