@@ -1,6 +1,6 @@
 // src/controllers/prayerService.ts
+import { CreatePrayerInput, Prayer, UpdatePrayerInput } from '../models/prayer';
 import { PostgresService } from './postgres.service';
-import { Prayer, CreatePrayerInput, UpdatePrayerInput } from '../models/prayer';
 
 // Map db row -> Prayer (snake_case -> camelCase)
 function mapRowToPrayer(row: any): Prayer {
@@ -29,7 +29,7 @@ export class PrayerService {
               last_played_at, created_at, updated_at
        FROM prayers
        WHERE user_id = $1::uuid 
-       ORDER BY created_at DESC`,
+       ORDER BY updated_at DESC`,
       [userId]
     );
     return rows.map(mapRowToPrayer);
