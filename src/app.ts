@@ -11,6 +11,7 @@ import { userRoutes } from './routes/userRoutes'
 import { prayerRoutes } from './routes/prayerRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
 import { prayOnItRoutes } from './routes/prayOnItRoutes';
+import { ttsRoutes } from './routes/ttsRoutes';
 import { url } from 'inspector'
 
 dotenv.config()
@@ -35,6 +36,7 @@ const allRoutes = asServerRoutes([
   ...tokenRoutes as unknown as ServerRoute[],
   ...prayerRoutes as unknown as ServerRoute[],
   ...prayOnItRoutes as unknown as ServerRoute[],
+  ...ttsRoutes as unknown as ServerRoute[],
 ])
 
 async function buildServer() {

@@ -5,25 +5,37 @@ jordanduffey@Mac tobback % tree -I node_modules
 ├── dist
 │   ├── app.js
 │   ├── controllers
+│   │   ├── aiService.js
 │   │   ├── authService.js
 │   │   ├── email.service.js
 │   │   ├── postgres.service.js
+│   │   ├── prayerLimitService.js
+│   │   ├── prayerService.js
+│   │   ├── prayOnItLimitService.js
+│   │   ├── prayOnItService.js
 │   │   ├── redis.service.js
 │   │   ├── tokenService.js
 │   │   └── userService.js
 │   ├── models
+│   │   ├── aiItems.js
+│   │   ├── prayer.js
+│   │   ├── prayOnItItem.js
 │   │   └── user.js
 │   ├── routes
 │   │   ├── index.js
 │   │   ├── loginRoutes.js
+│   │   ├── prayerRoutes.js
+│   │   ├── prayOnItRoutes.js
 │   │   ├── tokenRoutes.js
 │   │   └── userRoutes.js
 │   ├── scripts
 │   │   ├── seedAllEntry.js
+│   │   ├── seedPrayOnIts.js
 │   │   └── seedUsers.js
 │   └── tests
 │       ├── authService.test.js
 │       ├── postgresService.test.js
+│       ├── prayerService.test.js
 │       └── userService.test.js
 ├── DOCKER_SETUP.md
 ├── docker-compose.yml
@@ -37,19 +49,28 @@ jordanduffey@Mac tobback % tree -I node_modules
 ├── src
 │   ├── app.ts
 │   ├── controllers
+│   │   ├── aiService.ts
 │   │   ├── authService.ts
 │   │   ├── email.service.ts
 │   │   ├── postgres.service.ts
 │   │   ├── prayerLimitService.ts
 │   │   ├── prayerService.ts
+│   │   ├── prayOnItLimitService.ts
+│   │   ├── prayOnItService.ts
 │   │   ├── redis.service.ts
 │   │   ├── tokenService.ts
 │   │   └── userService.ts
 │   ├── migrations
 │   │   ├── 1765231026799_users-prayers-tokens.js
-│   │   └── 1765247785790_drop-credits.js
+│   │   ├── 1765247785790_drop-credits.js
+│   │   ├── 1765832590077_pray-on-it.js
+│   │   ├── 1765921573484_add-user-settings.js
+│   │   ├── 1766088281004_drop-prayer-deleted.js
+│   │   └── 1766100195335_ai-convos.js
 │   ├── models
+│   │   ├── aiItems.ts
 │   │   ├── prayer.ts
+│   │   ├── prayOnItItem.ts
 │   │   └── user.ts
 │   ├── public
 │   │   └── activation-succes.html
@@ -57,10 +78,12 @@ jordanduffey@Mac tobback % tree -I node_modules
 │   │   ├── index.ts
 │   │   ├── loginRoutes.ts
 │   │   ├── prayerRoutes.ts
+│   │   ├── prayOnItRoutes.ts
 │   │   ├── tokenRoutes.ts
 │   │   └── userRoutes.ts
 │   ├── scripts
 │   │   ├── seedAllEntry.ts
+│   │   ├── seedPrayOnIts.ts
 │   │   └── seedUsers.ts
 │   └── tests
 │       ├── authService.test.ts
@@ -82,83 +105,4 @@ jordanduffey@Mac tobback % tree -I node_modules
 ├── tsconfig.json
 └── ztree.txt
 
-
-curl https://api.openai.com/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer [redacted]" \
-  -d '{
-    "model": "gpt-4o-mini",
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer.\n\nPrayer Type: Pray on behalf of others. Ask for God'\''s intervention,
-         healing, and blessing in their lives.\n\nTone: Use reflective, meditative language. Create space for quiet reflection. Be thoughtful and introspective.\n\nStyle: Be 
-         reflective and detailed. Take time to explore each topic with care. Use poetic, flowing language.\n\nGuidelines:\n- Be sincere and reverent\n- Avoid clichés; be 
-         authentic\n- Include the specific people and situations mentioned\n- Follow traditional prayer structure: Opening address → Body (main content) → Closing\n- End 
-         with \"Amen\" or appropriate closing"
-      },
-      {
-        "role": "user",
-        "content": "Please create a prayer for the following people and intentions:\n\n- Mom (mother) [family] - Focus: healing\n  Note: Recent hip replacement surgery, recovering 
-        at home\n- Dad (father) [family] - Focus: strength\n  Note: Caring for Mom during recovery, feeling exhausted\n- Aunt Carol (aunt) [family] - Focus: comfort\n  
-        Note: Grieving the loss of her husband last month\n\nAdditional context from the user:\nOur family is going through a difficult season. Please help me pray with faith
-         and hope."
-      }
-    ],
-    "temperature": 0.7,
-    "max_tokens": 600
-  }'
-
-  //what we get back
-  {
-  "id": "chatcmpl-CoIJ71fcaPb3CDri4eu5v281kOx5y",
-  "object": "chat.completion",
-  "created": 1766102809,
-  "model": "gpt-4o-mini-2024-07-18",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Dear Divine Healer,  \nIn this sacred moment, we gather our hearts and minds, reaching out to You with humble spirits, seeking Your grace and mercy. We recognize
-         the weight of our burdens and the challenges that our loved ones face. With unwavering faith, we lift them up to You, trusting in Your profound love and wisdom. 
-          \n\nWe turn our thoughts to our beloved Mom, whose journey of healing has taken her through the trials of surgery. As she rests in the embrace of home, we ask for 
-          Your gentle hands to guide her recovery. May each day bring her renewed strength, and may she feel Your presence surrounding her with warmth and comfort. Infuse her 
-          body with healing light, that she may rise and move with grace once more. Let her pain be eased, and let hope blossom in her heart as she journeys toward restoration.  
-          \n\nTo our dear Dad, who stands as a pillar of strength during this season of vulnerability, we seek Your fortitude to envelop him. As he tirelessly cares for Mom, may 
-          he also feel cared for by Your everlasting love. Lift the weight of exhaustion from his shoulders, and grant him moments of peace amidst the chaos. Fill his spirit with
-           resilience, and remind him that he is not alone in this undertaking. May he find solace in Your presence, refueling his heart with the strength he needs to continue his
-            noble service to his beloved wife.  \n\nAnd we hold Aunt Carol in our hearts, enveloping her in love and compassion as she navigates the profound sorrow of loss. The 
-            passing of her husband has left a poignant void, and we ask that Your comfort descend upon her like a soft, healing balm. Surround her with Your peace, O Divine 
-            Comforter, and grant her the courage to grieve and remember, embracing the love they shared. May she find solace in the cherished memories, and may the warmth of 
-            family and friends be a refuge during her darkest hours.  \n\nIn this difficult season for our family, we turn to You with sincere faith and hope. May Your grace 
-            guide us through the valleys, illuminating our paths with love and healing. Let us feel the threads of connection that bind us, and may we support one another with 
-            kindness and understanding.  \n\nWe trust in Your divine intervention, knowing that through You, all things are possible. May our hearts remain open to Your blessings,
-             and may we always seek Your light, even in times of trial.  \n\nAmen.",
-        "refusal": null,
-        "annotations": []
-      },
-      "logprobs": null,
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 256,
-    "completion_tokens": 488,
-    "total_tokens": 744,
-    "prompt_tokens_details": {
-      "cached_tokens": 0,
-      "audio_tokens": 0
-    },
-    "completion_tokens_details": {
-      "reasoning_tokens": 0,
-      "audio_tokens": 0,
-      "accepted_prediction_tokens": 0,
-      "rejected_prediction_tokens": 0
-    }
-  },
-  "service_tier": "default",
-  "system_fingerprint": "fp_c4585b5b9c"
-}
-
-are we set up to handle that in the return?
+17 directories, 88 files

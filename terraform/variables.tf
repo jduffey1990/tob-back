@@ -107,3 +107,21 @@ variable "openai_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "speechify_api_key" {
+  description = "API key for open AI chat completion"
+  type        = string
+  sensitive   = true
+}
+
+variable "azure_tts_api_key" {
+  description = "API key for open AI chat completion"
+  type        = string
+  sensitive   = true
+}
+
+variable "azure_tts_region" {
+  description = "API key for open AI chat completion"
+  type        = string
+  sensitive   = true
+}

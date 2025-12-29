@@ -209,6 +209,38 @@ export class UserService {
     return mapRowToUserSafe(rows[0]);
   }
 
+
+/**
+ * Get basic user info (for TTS tier checking)
+ */
+static async getUserInfo(userId: string): Promise<{
+  id: string;
+  subscriptionTier: string;
+  subscriptionExpiresAt: Date | null;
+}> {
+  const db = PostgresService.getInstance();
+  
+  const result = await db.query(
+    `SELECT id, subscription_tier, subscription_expires_at 
+     FROM users 
+     WHERE id = $1`,
+    [userId]
+  );
+  
+  if (result.rows.length === 0) {
+    throw new Error('User not found');
+  }
+  
+  const row = result.rows[0];
+  
+  // Map snake_case to camelCase (following your project's pattern)
+  return {
+    id: row.id,
+    subscriptionTier: row.subscription_tier,
+    subscriptionExpiresAt: row.subscription_expires_at
+  };
+}
+
   /**
    * Soft delete (optional): set deleted_at; keep row for audit.
    */

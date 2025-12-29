@@ -4,6 +4,7 @@ import {homeRoutes, loginRoutes} from './loginRoutes';
 import { tokenRoutes } from './tokenRoutes';
 import { prayerRoutes } from './prayerRoutes';
 import { prayOnItRoutes } from './prayOnItRoutes';
+import { ttsRoutes } from './ttsRoutes';
 
 export default [
   ...userRoutes,
@@ -11,5 +12,6 @@ export default [
   ...loginRoutes,
   ...tokenRoutes,
   ...prayerRoutes,
-  ...prayOnItRoutes
+  ...prayOnItRoutes,
+  ...ttsRoutes
 ];
