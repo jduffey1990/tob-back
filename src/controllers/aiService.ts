@@ -1,10 +1,10 @@
 // src/controllers/aiService.ts (REVISED - Normalized Version)
 import OpenAI from 'openai';
 import {
-    AIGeneration,
-    OpenAIResponse,
-    PrayerGenerationRequest,
-    PrayerGenerationResponse
+  AIGeneration,
+  OpenAIResponse,
+  PrayerGenerationRequest,
+  PrayerGenerationResponse
 } from '../models/aiItems';
 import { PostgresService } from './postgres.service';
 
@@ -328,8 +328,13 @@ Guidelines:
       lifetime: null  // unlimited
     };
     
-    const limit = limits[tier] ?? 0;
+    const limit = tier in limits ? limits[tier] : 0;
     const allowed = limit === null || currentCount < limit;
+
+    console.log(`🔍 [DEBUG] Tier: ${tier}`);
+    console.log(`🔍 [DEBUG] Current count: ${currentCount}`);
+    console.log(`🔍 [DEBUG] Limit from lookup: ${limit}`);
+    console.log(`🔍 [DEBUG] Allowed check: ${limit === null || currentCount < limit}`);
     
     if (!allowed) {
       const upgradeMessage = tier === 'free' 

@@ -32,6 +32,7 @@ export class PrayerService {
        ORDER BY updated_at DESC`,
       [userId]
     );
+    console.log("here are rows", rows)
     return rows.map(mapRowToPrayer);
   }
 
