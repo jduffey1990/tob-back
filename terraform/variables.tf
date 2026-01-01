@@ -125,3 +125,9 @@ variable "azure_tts_region" {
   type        = string
   sensitive   = true
 }
+
+variable "fish_api_key" {
+  description = "API key for fish audio"
+  type        = string
+  sensitive   = true
+}

@@ -45,7 +45,7 @@ services:
     volumes:
       - ./src:/app/src  # Hot reload source code
       - ./dist:/app/dist
-      - /app/node_modules  # Don't overwrite node_modules
+      - tob_node_modules:/app/node_modules  # Don't overwrite node_modules
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,6 +55,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  tob_node_modules:
     driver: local
 
 networks:
