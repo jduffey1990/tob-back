@@ -24,6 +24,7 @@ const userRoutes_1 = require("./routes/userRoutes");
 const prayerRoutes_1 = require("./routes/prayerRoutes");
 const tokenRoutes_1 = require("./routes/tokenRoutes");
 const prayOnItRoutes_1 = require("./routes/prayOnItRoutes");
+const ttsRoutes_1 = require("./routes/ttsRoutes");
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_LAMBDA = NODE_ENV === 'production' || !!process.env.LAMBDA_TASK_ROOT;
@@ -42,6 +43,7 @@ const allRoutes = asServerRoutes([
     ...tokenRoutes_1.tokenRoutes,
     ...prayerRoutes_1.prayerRoutes,
     ...prayOnItRoutes_1.prayOnItRoutes,
+    ...ttsRoutes_1.ttsRoutes,
 ]);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {

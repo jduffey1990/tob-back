@@ -183,6 +183,27 @@ class UserService {
         });
     }
     /**
+     * Get basic user info (for TTS tier checking)
+     */
+    static getUserInfo(userId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const db = postgres_service_1.PostgresService.getInstance();
+            const result = yield db.query(`SELECT id, subscription_tier, subscription_expires_at 
+     FROM users 
+     WHERE id = $1`, [userId]);
+            if (result.rows.length === 0) {
+                throw new Error('User not found');
+            }
+            const row = result.rows[0];
+            // Map snake_case to camelCase (following your project's pattern)
+            return {
+                id: row.id,
+                subscriptionTier: row.subscription_tier,
+                subscriptionExpiresAt: row.subscription_expires_at
+            };
+        });
+    }
+    /**
      * Soft delete (optional): set deleted_at; keep row for audit.
      */
     static softDelete(userId) {

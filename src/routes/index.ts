@@ -5,6 +5,8 @@ import { tokenRoutes } from './tokenRoutes';
 import { prayerRoutes } from './prayerRoutes';
 import { prayOnItRoutes } from './prayOnItRoutes';
 import { ttsRoutes } from './ttsRoutes';
+import { redisRoutes } from './redisRoutes'
+
 
 export default [
   ...userRoutes,
@@ -13,5 +15,6 @@ export default [
   ...tokenRoutes,
   ...prayerRoutes,
   ...prayOnItRoutes,
-  ...ttsRoutes
+  ...ttsRoutes,
+  ...redisRoutes
 ];
