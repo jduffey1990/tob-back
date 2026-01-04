@@ -46,77 +46,77 @@ export const ttsRoutes: ServerRoute[] = [
     }
   },
 
-  // ============================================
-  // POST /prayers/{id}/generate-audio - Generate TTS audio
-  // ============================================
-  {
-    method: 'POST',
-    path: '/prayers/{id}/generate-audio',
-    handler: async (request: Request, h: ResponseToolkit) => {
-      try {
-        const authUser = request.auth.credentials as UserSafe;
-        const { id: prayerId } = request.params;
-        const payload = request.payload as {
-          voiceId: string;
-        };
+  // // ============================================
+  // // POST /prayers/{id}/generate-audio - Generate TTS audio
+  // // ============================================
+  // {
+  //   method: 'POST',
+  //   path: '/prayers/{id}/generate-audio',
+  //   handler: async (request: Request, h: ResponseToolkit) => {
+  //     try {
+  //       const authUser = request.auth.credentials as UserSafe;
+  //       const { id: prayerId } = request.params;
+  //       const payload = request.payload as {
+  //         voiceId: string;
+  //       };
         
-        // Validate payload
-        if (!payload.voiceId) {
-          return h.response({
-            error: 'voiceId is required'
-          }).code(400);
-        }
+  //       // Validate payload
+  //       if (!payload.voiceId) {
+  //         return h.response({
+  //           error: 'voiceId is required'
+  //         }).code(400);
+  //       }
         
-        // 1. Get the prayer (verify user owns it)
-        const prayer = await PrayerService.findPrayerById(prayerId, authUser.id);
+  //       // 1. Get the prayer (verify user owns it)
+  //       const prayer = await PrayerService.findPrayerById(prayerId, authUser.id);
         
-        if (!prayer) {
-          return h.response({ error: 'Prayer not found' }).code(404);
-        }
+  //       if (!prayer) {
+  //         return h.response({ error: 'Prayer not found' }).code(404);
+  //       }
         
-        // 2. Generate audio
-        const ttsResponse = await TTSService.generateAudio({
-          prayerId,
-          text: prayer.text,
-          voiceId: payload.voiceId,
-          userId: authUser.id
-        });
+  //       // 2. Generate audio
+  //       const ttsResponse = await TTSService.generateAudio({
+  //         prayerId,
+  //         text: prayer.text,
+  //         voiceId: payload.voiceId,
+  //         userId: authUser.id
+  //       });
         
-        // 3. Return audio data
-        return h.response(ttsResponse).code(200);
+  //       // 3. Return audio data
+  //       return h.response(ttsResponse).code(200);
         
-      } catch (error: any) {
-        console.error('Generate audio error:', error);
+  //     } catch (error: any) {
+  //       console.error('Generate audio error:', error);
         
-        // Handle specific errors
-        if (error.message.includes('INVALID_VOICE')) {
-          return h.response({
-            error: 'Invalid voice ID',
-            message: error.message
-          }).code(400);
-        }
+  //       // Handle specific errors
+  //       if (error.message.includes('INVALID_VOICE')) {
+  //         return h.response({
+  //           error: 'Invalid voice ID',
+  //           message: error.message
+  //         }).code(400);
+  //       }
         
-        if (error.message.includes('INVALID_TIER')) {
-          return h.response({
-            error: 'Voice not available in your subscription tier',
-            message: error.message,
-            upgradeRequired: true
-          }).code(403); // 403 Forbidden
-        }
+  //       if (error.message.includes('INVALID_TIER')) {
+  //         return h.response({
+  //           error: 'Voice not available in your subscription tier',
+  //           message: error.message,
+  //           upgradeRequired: true
+  //         }).code(403); // 403 Forbidden
+  //       }
         
-        if (error.message.includes('not found')) {
-          return h.response({ error: 'Prayer not found' }).code(404);
-        }
+  //       if (error.message.includes('not found')) {
+  //         return h.response({ error: 'Prayer not found' }).code(404);
+  //       }
         
-        return h.response({ error: error.message }).code(500);
-      }
-    },
-    options: {
-      auth: 'jwt',
-      description: 'Generate TTS audio for a prayer',
-      tags: ['api', 'tts', 'prayers']
-    }
-  },
+  //       return h.response({ error: error.message }).code(500);
+  //     }
+  //   },
+  //   options: {
+  //     auth: 'jwt',
+  //     description: 'Generate TTS audio for a prayer',
+  //     tags: ['api', 'tts', 'prayers']
+  //   }
+  // },
 
   // ============================================
   // GET /voices/preview/{voiceId} - Get preview info for a voice

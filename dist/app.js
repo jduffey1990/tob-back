@@ -14,17 +14,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 // app.ts
-const dotenv_1 = __importDefault(require("dotenv"));
 const hapi_1 = __importDefault(require("@hapi/hapi"));
 const serverless_express_1 = __importDefault(require("@vendia/serverless-express"));
-const postgres_service_1 = require("./controllers/postgres.service");
+const dotenv_1 = __importDefault(require("dotenv"));
 const authService_1 = require("./controllers/authService");
+const postgres_service_1 = require("./controllers/postgres.service");
 const loginRoutes_1 = require("./routes/loginRoutes");
-const userRoutes_1 = require("./routes/userRoutes");
 const prayerRoutes_1 = require("./routes/prayerRoutes");
-const tokenRoutes_1 = require("./routes/tokenRoutes");
 const prayOnItRoutes_1 = require("./routes/prayOnItRoutes");
+const redisRoutes_1 = require("./routes/redisRoutes");
+const tokenRoutes_1 = require("./routes/tokenRoutes");
 const ttsRoutes_1 = require("./routes/ttsRoutes");
+const userRoutes_1 = require("./routes/userRoutes");
+const audioRoutes_1 = require("./routes/audioRoutes");
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_LAMBDA = NODE_ENV === 'production' || !!process.env.LAMBDA_TASK_ROOT;
@@ -44,6 +46,8 @@ const allRoutes = asServerRoutes([
     ...prayerRoutes_1.prayerRoutes,
     ...prayOnItRoutes_1.prayOnItRoutes,
     ...ttsRoutes_1.ttsRoutes,
+    ...redisRoutes_1.redisRoutes,
+    ...audioRoutes_1.audioRoutes
 ]);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {

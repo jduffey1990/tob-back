@@ -13,6 +13,7 @@ import { redisRoutes } from './routes/redisRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
 import { ttsRoutes } from './routes/ttsRoutes'
 import { userRoutes } from './routes/userRoutes'
+import { audioRoutes } from './routes/audioRoutes'
 
 dotenv.config()
 
@@ -37,7 +38,8 @@ const allRoutes = asServerRoutes([
   ...prayerRoutes as unknown as ServerRoute[],
   ...prayOnItRoutes as unknown as ServerRoute[],
   ...ttsRoutes as unknown as ServerRoute[],
-  ...redisRoutes as unknown as ServerRoute[]
+  ...redisRoutes as unknown as ServerRoute[],
+  ...audioRoutes as unknown as ServerRoute[]
 ])
 
 async function buildServer() {
