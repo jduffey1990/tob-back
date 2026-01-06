@@ -5,6 +5,7 @@ import dotenv from 'dotenv'
 import type { IncomingMessage, RequestListener, ServerResponse } from 'http'
 
 import { AuthService } from './controllers/authService'
+import { S3Service } from './controllers/s3.service';
 import { PostgresService } from './controllers/postgres.service'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { prayerRoutes } from './routes/prayerRoutes'
@@ -64,6 +65,8 @@ async function buildServer() {
     idleTimeoutMillis: 120000,   // 2 minutes (longer than Lambda timeout)
     connectionTimeoutMillis: 5000, // 5 second timeout
   })
+
+  S3Service.initialize()
 
   await server.register(require('@hapi/jwt'))
 

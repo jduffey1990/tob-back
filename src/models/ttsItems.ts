@@ -35,5 +35,6 @@ export interface VoiceOption {
   description?: string;
   tier: 'free' | 'pro' | 'warrior';
   provider: 'apple' | 'azure' | 'fishaudio';
+  file?: string | null;
   previewUrl?: string;  // URL to a sample audio file (for iOS to cache)
 }

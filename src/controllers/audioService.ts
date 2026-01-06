@@ -87,7 +87,7 @@ export class AudioService {
     const result = await db.query<{ id: string; text: string; title: string }>(
       `SELECT id, text, title 
        FROM prayers 
-       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       WHERE id = $1 AND user_id = $2
        LIMIT 1`,
       [prayerId, userId]
     );

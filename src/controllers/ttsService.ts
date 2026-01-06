@@ -1,11 +1,9 @@
 // src/controllers/ttsService.ts
 import axios from 'axios';
-import * as msgpack from 'msgpack-lite';
-import WebSocket from 'ws';
 import {
-    TTSRequest,
-    TTSResponse,
-    VoiceOption
+  TTSRequest,
+  TTSResponse,
+  VoiceOption
 } from '../models/ttsItems';
 import { PostgresService } from './postgres.service';
 
@@ -155,7 +153,7 @@ export class TTSService {
   }
   
   /**
-   * OLD METHOD - Keep for reference/fallback
+   * 
    * Generate audio using Fish Audio REST API (deprecated - use streaming instead)
    */
   private static async generateFishAudioTTS(
@@ -289,7 +287,8 @@ export class TTSService {
         gender: 'female',
         description: 'Warm and friendly American voice',
         tier: 'pro',
-        provider: 'azure'
+        provider: 'azure',
+        file: 'jenny_neural'
       },
       {
         id: 'en-US-GuyNeural',
@@ -298,7 +297,8 @@ export class TTSService {
         gender: 'male',
         description: 'Professional American voice',
         tier: 'pro',
-        provider: 'azure'
+        provider: 'azure',
+        file: 'guy_neural'
       },
       {
         id: 'en-GB-SoniaNeural',
@@ -307,7 +307,8 @@ export class TTSService {
         gender: 'female',
         description: 'Clear British voice',
         tier: 'pro',
-        provider: 'azure'
+        provider: 'azure',
+        file: 'sonia_neural'
       },
       {
         id: 'en-GB-RyanNeural',
@@ -316,36 +317,40 @@ export class TTSService {
         gender: 'male',
         description: 'Authoritative British voice',
         tier: 'pro',
-        provider: 'azure'
+        provider: 'azure',
+        file: 'ryan_neural'
       },
       
       // WARRIOR TIER - Fish Audio Voices
       {
-        id: 'default',
-        name: 'Fish Audio Default',
+        id: 'b347db033a6549378b48d00acb0d06cd',
+        name: 'Selene',
         language: 'en-US',
         gender: 'neutral',
         description: 'Natural AI voice with emotion control',
         tier: 'warrior',
-        provider: 'fishaudio'
+        provider: 'fishaudio',
+        file: 'selene_preview'
       },
       {
         id: '6ccd48c2891d409092b298dc34db0480',
-        name: 'Jordan (Your Voice)',
+        name: 'Jordan (App Creator Voice)',
         language: 'en-US',
         gender: 'male',
         description: 'Personal cloned voice',
         tier: 'warrior',
-        provider: 'fishaudio'
+        provider: 'fishaudio',
+        file: 'jordan_preview'
       },
       {
-        id: 'cb4dba2cac154519ae85590d7fa2ef6b',
+        id: 'f273648b2f6242d4bf6ede2ccc4a525a',
         name: 'Golem',
         language: 'en-US',
         gender: 'male',
         description: 'Sneak from LOTR',
         tier: 'warrior',
-        provider: 'fishaudio'
+        provider: 'fishaudio',
+        file: 'golem_preview'
       }
     ];
   }

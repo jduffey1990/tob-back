@@ -63,6 +63,7 @@ export const audioRoutes: ServerRoute[] = [
     method: 'POST',
     path: '/prayers/{id}/generate-audio',
     handler: async (request: Request, h: ResponseToolkit) => {
+      console.log("called route")
       try {
         const authUser = request.auth.credentials as UserSafe;
         const { id: prayerId } = request.params;
@@ -75,6 +76,7 @@ export const audioRoutes: ServerRoute[] = [
           }).code(400);
         }
         
+        console.log("here is id", prayerId)
         // Verify user owns this prayer
         const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
         

@@ -1,12 +1,18 @@
 // src/controllers/s3.service.ts
 // S3 service for storing TTS audio files
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export class S3Service {
   private static client: S3Client;
   private static bucket: string;
+
+  private static ensureInitialized(): void {
+  if (!S3Service.client || !S3Service.bucket) {
+    throw new Error('S3Service not initialized. Call S3Service.initialize() first.');
+  }
+}
 
   /**
    * Initialize S3 client (call once at app startup)
@@ -58,6 +64,8 @@ export class S3Service {
       characterCount?: number;
     }
   ): Promise<{ s3Key: string; s3Url: string }> {
+    S3Service.ensureInitialized();
+
     const key = S3Service.generateKey(prayerId, voiceId);
 
     // Prepare metadata for S3
