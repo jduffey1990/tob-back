@@ -1,15 +1,15 @@
 // src/controllers/prayOnItLimitService.ts
-import { UserService } from './userService';
 import { PrayOnItService } from './prayOnItService';
+import { UserService } from './userService';
 
 /**
  * Tier limits for Pray On It items
  */
 const TIER_LIMITS = {
   free: 5,
-  pro: 50,
-  lifetime: null,  // unlimited
-  prayer_warrior: null,  // unlimited
+  pro: 10,
+  prayer_warrior: 25,
+  lifetime: 25,
 } as const;
 
 export class PrayOnItLimitService {
@@ -26,18 +26,26 @@ export class PrayOnItLimitService {
     const tier = user.subscriptionTier || 'free';
     const limit = TIER_LIMITS[tier as keyof typeof TIER_LIMITS];
     
-    // Unlimited tiers
-    if (limit === null) {
-      return;
+    // Check if tier exists
+    if (limit === undefined) {
+      throw new Error(`Unknown subscription tier: ${tier}`);
     }
     
     // Check current count
     const currentCount = await PrayOnItService.countUserItems(userId);
     
     if (currentCount >= limit) {
-      throw new Error(
-        `Pray On It item limit reached. ${tier === 'free' ? 'Upgrade to Pro for 50 items!' : 'You have reached your limit.'}`
-      );
+      if (tier === 'free') {
+        throw new Error(
+          `Pray On It item limit reached. Upgrade to Pro for ${TIER_LIMITS.pro} items!`
+        );
+      } else if (tier === 'pro') {
+        throw new Error(
+          `Pray On It item limit reached. Upgrade to Prayer Warrior for ${TIER_LIMITS.prayer_warrior} items!`
+        );
+      } else {
+        throw new Error('Pray On It item limit reached.');
+      }
     }
   }
   
@@ -51,15 +59,15 @@ export class PrayOnItLimitService {
     }
     
     const tier = user.subscriptionTier || 'free';
-    const limit = TIER_LIMITS[tier as keyof typeof TIER_LIMITS];
+    const limit = TIER_LIMITS[tier as keyof typeof TIER_LIMITS] ?? 0;
     const currentCount = await PrayOnItService.countUserItems(userId);
     
     return {
       tier,
       currentCount,
-      limit,  // null = unlimited
-      remaining: limit === null ? null : Math.max(0, limit - currentCount),
-      canCreate: limit === null || currentCount < limit,
+      limit,
+      remaining: Math.max(0, limit - currentCount),
+      canCreate: currentCount < limit,
     };
   }
 }

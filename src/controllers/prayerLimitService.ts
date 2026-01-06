@@ -2,7 +2,7 @@
 import { PostgresService } from './postgres.service';
 
 export interface SubscriptionInfo {
-  tier: 'free' | 'pro' | 'lifetime';
+  tier: 'free' | 'pro' | 'prayer_warrior' | 'lifetime';
   expiresAt: Date | null;
   isActive: boolean;
   prayerCount: number;
@@ -12,7 +12,19 @@ export interface SubscriptionInfo {
 }
 
 export class PrayerLimitService {
-  private static readonly FREE_TIER_LIMIT = 5;
+  private static readonly TIER_LIMITS = {
+    free: 5,
+    pro: 20,
+    prayer_warrior: 100,
+    lifetime: null, // unlimited
+  } as const;
+
+  /**
+   * Get the prayer limit for a given tier
+   */
+  private static getTierLimit(tier: string): number | null {
+    return this.TIER_LIMITS[tier as keyof typeof this.TIER_LIMITS] ?? 0;
+  }
 
   /**
    * Get comprehensive subscription and prayer limit info for a user
@@ -46,26 +58,25 @@ export class PrayerLimitService {
 
     // Determine if subscription is active
     let isActive = true;
+    let effectiveTier = subscription_tier;
+
+    // Check if Pro subscription has expired
     if (subscription_tier === 'pro' && subscription_expires_at) {
       isActive = new Date(subscription_expires_at) > new Date();
+      if (!isActive) {
+        // Expired Pro reverts to free tier limits
+        effectiveTier = 'free';
+      }
     }
 
-    // Calculate limits based on tier and active status
-    let prayerLimit: number | null;
-    let canCreatePrayer: boolean;
-    let remainingPrayers: number | null;
-
-    if (subscription_tier === 'free' || (subscription_tier === 'pro' && !isActive)) {
-      // Free tier or expired Pro (reverts to free)
-      prayerLimit = this.FREE_TIER_LIMIT;
-      canCreatePrayer = prayerCount < prayerLimit;
-      remainingPrayers = Math.max(0, prayerLimit - prayerCount);
-    } else {
-      // Active Pro or Lifetime = unlimited
-      prayerLimit = null;
-      canCreatePrayer = true;
-      remainingPrayers = null;
-    }
+    // Get limit for effective tier
+    const prayerLimit = this.getTierLimit(effectiveTier);
+    
+    // Calculate if user can create more prayers
+    const canCreatePrayer = prayerLimit === null || prayerCount < prayerLimit;
+    const remainingPrayers = prayerLimit === null 
+      ? null 
+      : Math.max(0, prayerLimit - prayerCount);
 
     return {
       tier: subscription_tier,
@@ -90,9 +101,21 @@ export class PrayerLimitService {
         throw new Error(
           'Your Pro subscription has expired. Please renew to continue creating prayers, or delete existing prayers to stay within the free tier limit.'
         );
+      } else if (info.tier === 'free') {
+        throw new Error(
+          `Free tier is limited to ${this.TIER_LIMITS.free} prayers. You currently have ${info.prayerCount}. Upgrade to Pro for ${this.TIER_LIMITS.pro} prayers!`
+        );
+      } else if (info.tier === 'pro') {
+        throw new Error(
+          `Pro tier is limited to ${this.TIER_LIMITS.pro} prayers. You currently have ${info.prayerCount}. Upgrade to Prayer Warrior for ${this.TIER_LIMITS.prayer_warrior} prayers!`
+        );
+      } else if (info.tier === 'prayer_warrior') {
+        throw new Error(
+          `Prayer Warrior tier is limited to ${this.TIER_LIMITS.prayer_warrior} prayers. You currently have ${info.prayerCount}. Upgrade to Lifetime for unlimited prayers!`
+        );
       } else {
         throw new Error(
-          `Free tier is limited to ${this.FREE_TIER_LIMIT} prayers. You currently have ${info.prayerCount}. Upgrade to Pro for unlimited prayers!`
+          `Prayer limit reached. You currently have ${info.prayerCount} prayers.`
         );
       }
     }
