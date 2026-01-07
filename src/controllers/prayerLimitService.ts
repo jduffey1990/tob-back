@@ -23,7 +23,14 @@ export class PrayerLimitService {
    * Get the prayer limit for a given tier
    */
   private static getTierLimit(tier: string): number | null {
-    return this.TIER_LIMITS[tier as keyof typeof this.TIER_LIMITS] ?? 0;
+    const limit = this.TIER_LIMITS[tier as keyof typeof this.TIER_LIMITS];
+    
+    if (limit === undefined) {
+      console.warn(`⚠️ Unknown subscription tier: "${tier}" - defaulting to free tier limit`);
+      return this.TIER_LIMITS.free;
+    }
+    
+    return limit;
   }
 
   /**
@@ -45,6 +52,10 @@ export class PrayerLimitService {
     }
 
     const { subscription_tier, subscription_expires_at } = userRows[0];
+    
+    console.log(`📊 [PrayerLimitService] User ${userId}`);
+    console.log(`   Tier from DB: "${subscription_tier}" (type: ${typeof subscription_tier})`);
+    console.log(`   Expires at: ${subscription_expires_at}`);
 
     // Count user's active (non-deleted) prayers
     const { rows: prayerRows } = await db.query(
@@ -72,11 +83,18 @@ export class PrayerLimitService {
     // Get limit for effective tier
     const prayerLimit = this.getTierLimit(effectiveTier);
     
+    console.log(`   Effective tier: "${effectiveTier}"`);
+    console.log(`   Prayer count: ${prayerCount}`);
+    console.log(`   Prayer limit: ${prayerLimit === null ? 'unlimited' : prayerLimit}`);
+    
     // Calculate if user can create more prayers
     const canCreatePrayer = prayerLimit === null || prayerCount < prayerLimit;
     const remainingPrayers = prayerLimit === null 
       ? null 
       : Math.max(0, prayerLimit - prayerCount);
+
+    console.log(`   Can create: ${canCreatePrayer}`);
+    console.log(`   Remaining: ${remainingPrayers === null ? 'unlimited' : remainingPrayers}`);
 
     return {
       tier: subscription_tier,

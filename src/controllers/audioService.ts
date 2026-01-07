@@ -1,11 +1,11 @@
 // src/controllers/audioService.ts
 // Audio Service - Handles audio file state management and generation orchestration
 
+import { AudioFileRow, AudioState, AudioStateResponse, rowToAudioFile } from '../models/audioItem';
 import { PostgresService } from './postgres.service';
 import { RedisService } from './redis.service';
-import { TTSService } from './ttsService';
 import { S3Service } from './s3.service';
-import { AudioState, AudioStateResponse, AudioFileRow, rowToAudioFile } from '../models/audioItem';
+import { TTSService } from './ttsService';
 
 export class AudioService {
   
@@ -30,6 +30,8 @@ export class AudioService {
     
     // 1️⃣ Check Redis first - is it currently building?
     const isBuilding = await RedisService.isBuilding(prayerId, voiceId);
+
+    console.log(`Redis isBuildng = ${isBuilding}`)
     
     if (isBuilding) {
       const ttl = await RedisService.getBuildingTTL(prayerId, voiceId);
@@ -51,6 +53,7 @@ export class AudioService {
     );
     
     if (result.rows.length > 0) {
+      console.log("prayer audio found")
       const audioFile = rowToAudioFile(result.rows[0]);
       
       console.log(`   ✅ READY`);
@@ -63,6 +66,8 @@ export class AudioService {
         duration: audioFile.durationSeconds
       };
     }
+
+    console.log("prayer audio not found")
     
     // 3️⃣ Doesn't exist and not building
     return {

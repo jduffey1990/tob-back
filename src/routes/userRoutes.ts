@@ -174,9 +174,6 @@ export const userRoutes : ServerRoute[] = [
       try {
         const payload = request.payload as any;
         
-        // Verify captcha (optional - can be disabled in dev)
-        await verifyCaptcha(payload.captchaToken, 0.5);
-        
         // Parse name from either 'name' field or 'firstName' + 'lastName'
         const name =
           payload.name?.toString().trim() ||

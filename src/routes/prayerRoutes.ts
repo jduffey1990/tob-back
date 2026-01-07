@@ -278,37 +278,49 @@ export const prayerRoutes: ServerRoute[] = [
   // GET /prayers/stats - Get user prayer stats
   // ============================================
   {
-    method: 'GET',
-    path: '/prayers/stats',
-    handler: async (request: Request, h: ResponseToolkit) => {
-      try {
-        const authUser = request.auth.credentials as UserSafe;
-        
-        // Get comprehensive subscription info
-        const info = await PrayerLimitService.getSubscriptionInfo(authUser.id);
-        
-        return h.response({
-          tier: info.tier,
-          isActive: info.isActive,
-          expiresAt: info.expiresAt,
-          prayers: {
-            current: info.prayerCount,
-            limit: info.prayerLimit,      // null = unlimited
-            remaining: info.remainingPrayers, // null = unlimited
-            canCreate: info.canCreatePrayer
-          }
-        }).code(200);
-      } catch (error: any) {
-        console.error('Get prayer stats error:', error);
-        return h.response({ error: error.message }).code(500);
-      }
-    },
-    options: { 
-      auth: 'jwt',
-      description: 'Get prayer statistics and limits for current user',
-      tags: ['api', 'prayers', 'stats']
+  method: 'GET',
+  path: '/prayers/stats',
+  handler: async (request: Request, h: ResponseToolkit) => {
+    try {
+      const authUser = request.auth.credentials as UserSafe;
+      
+      // Get prayer limits
+      const prayerInfo = await PrayerLimitService.getSubscriptionInfo(authUser.id);
+      
+      // Get AI generation credits - use the checkCanGenerate method to get current state
+      const aiCheck = await AIService.checkCanGenerate(authUser.id);
+      
+      return h.response({
+        tier: prayerInfo.tier,
+        isActive: prayerInfo.isActive,
+        expiresAt: prayerInfo.expiresAt,
+        prayers: {
+          current: prayerInfo.prayerCount,
+          limit: prayerInfo.prayerLimit,      // null = unlimited
+          remaining: prayerInfo.remainingPrayers, // null = unlimited
+          canCreate: prayerInfo.canCreatePrayer
+        },
+        aiGenerations: {
+          current: aiCheck.current,
+          limit: aiCheck.limit,               // null = unlimited
+          remaining: aiCheck.limit === null 
+            ? null 
+            : Math.max(0, aiCheck.limit - aiCheck.current),
+          canGenerate: aiCheck.allowed,
+          period: aiCheck.period              // 'daily' or 'monthly'
+        }
+      }).code(200);
+    } catch (error: any) {
+      console.error('Get prayer stats error:', error);
+      return h.response({ error: error.message }).code(500);
     }
   },
+  options: { 
+    auth: 'jwt',
+    description: 'Get prayer statistics, limits, and AI generation credits for current user',
+    tags: ['api', 'prayers', 'stats']
+  }
+},
 
     // ============================================
   // POST AI prayers build
@@ -322,9 +334,9 @@ export const prayerRoutes: ServerRoute[] = [
         const payload = request.payload as PrayerGenerationRequest;
         
         // Validate required fields
-        if (!payload.prayerType || !payload.tone || !payload.length || !payload.expansiveness) {
+        if (!payload.prayerType || !payload.tone || !payload.length ) {
           return h.response({ 
-            error: 'Missing required fields: prayerType, tone, length, expansiveness' 
+            error: 'Missing one of required fields: prayerType, tone, length, expansiveness' 
           }).code(400);
         }
         

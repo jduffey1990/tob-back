@@ -275,6 +275,29 @@ static async getUserInfo(userId: string): Promise<{
   }
 
   /**
+   * Update user's password (for password reset functionality)
+   */
+  public static async updatePassword(
+    userId: string,
+    newPasswordHash: string
+  ): Promise<UserSafe> {
+    const db = PostgresService.getInstance();
+    
+    const { rows } = await db.query(
+      `UPDATE users
+      SET password_hash = $1,
+          updated_at = NOW()
+      WHERE id = $2::uuid
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                settings, deleted_at, created_at, updated_at`,
+      [newPasswordHash, userId]
+    );
+    
+    if (!rows[0]) throw new Error('User not found');
+    return mapRowToUserSafe(rows[0]);
+  }
+
+  /**
    * Example: mark user paid based on Stripe PaymentIntent (idempotent pattern).
    * NOTE: This assumes you have a payments table - adjust as needed for your subscription system
    */

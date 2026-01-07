@@ -1,4 +1,4 @@
-// src/controllers/aiService.ts (REVISED - Normalized Version)
+// src/controllers/aiService.ts (REVISED - Daily Limits for Prayer Warrior)
 import OpenAI from 'openai';
 import {
   AIGeneration,
@@ -26,7 +26,7 @@ export class AIService {
     
     console.log(`🤖 [AIService] Generating prayer for user ${userId}`);
     console.log(`   Type: ${request.prayerType}, Tone: ${request.tone}`);
-    console.log(`   Length: ${request.length}, Expansiveness: ${request.expansiveness}`);
+    
     console.log(`   Items: ${request.prayOnItItems.length}`);
     
     // 1. Check if user can generate (within tier limits)
@@ -58,7 +58,7 @@ export class AIService {
       const generatedTitle = this.generateTitle(request);
       
       // 5. Get updated credits (calculated from ai_generations table)
-      const { remaining, limit } = await this.getCreditsInfo(userId);
+      const { remaining, limit, period } = await this.getCreditsInfo(userId);
       
       // 6. Build response
       const response: PrayerGenerationResponse = {
@@ -67,6 +67,7 @@ export class AIService {
         generatedText: openAIResponse.choices[0].message.content,
         creditsRemaining: remaining,
         creditsLimit: limit,
+        creditsPeriod: period, // 'daily' or 'monthly'
         metadata: {
           modelUsed: openAIResponse.model,
           tokensUsed: openAIResponse.usage.total_tokens,
@@ -87,7 +88,7 @@ export class AIService {
       `, [JSON.stringify(response), generationId]);
       
       console.log(`✅ [AIService] Prayer generated successfully`);
-      console.log(`   Credits remaining: ${remaining}/${limit || 'unlimited'}`);
+      console.log(`   Credits remaining: ${remaining}/${limit || 'unlimited'} (${period})`);
       
       return response;
       
@@ -119,7 +120,7 @@ export class AIService {
    */
   private static async callOpenAI(request: PrayerGenerationRequest): Promise<OpenAIResponse> {
     
-    const systemPrompt = this.buildSystemPrompt(request.prayerType, request.tone, request.expansiveness);
+    const systemPrompt = this.buildSystemPrompt(request.prayerType, request.tone);
     const userPrompt = this.buildUserPrompt(request);
     const maxTokens = this.getMaxTokensForLength(request.length);
     
@@ -127,7 +128,6 @@ export class AIService {
     console.log(`   System prompt length: ${systemPrompt.length} chars`);
     console.log(`   User prompt length: ${userPrompt.length} chars`);
     console.log(`   Max tokens: ${maxTokens}`);
-    console.log(`   API Key (first 10): ${process.env.OPENAI_API_KEY?.substring(0, 10)}...`);
     
     try {
         const completion = await openai.chat.completions.create({
@@ -140,11 +140,9 @@ export class AIService {
         max_tokens: maxTokens,
         });
         
-        // Add this to see the full response
-        console.log(`📊 [AIService] Full OpenAI response:`);
+        console.log(`📊 [AIService] OpenAI response received`);
         console.log(`   ID: ${completion.id}`);
         console.log(`   Model: ${completion.model}`);
-        console.log(`   Created: ${new Date(completion.created * 1000).toISOString()}`);
         console.log(`   Finish reason: ${completion.choices[0].finish_reason}`);
         
         return completion as OpenAIResponse;
@@ -153,10 +151,9 @@ export class AIService {
         console.error(`❌ [AIService] OpenAI API error:`, error);
         console.error(`   Error type: ${error.constructor.name}`);
         console.error(`   Error message: ${error.message}`);
-        console.error(`   Error status: ${error.status}`);
         throw new Error(`AI_ERROR: ${error.message}`);
     }
-    }
+  }
   
   /**
    * Build system prompt based on prayer type, tone, and expansiveness
@@ -164,11 +161,10 @@ export class AIService {
   private static buildSystemPrompt(
     prayerType: string, 
     tone: string, 
-    expansiveness: string
   ): string {
     
-    const basePrompt = `You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer.  Add punctuation that is grammatically correct, ` +
-    'but also keep in mind that we will be using Text-To-Speech functionality.  So please optimize the prayer writing for that also.';
+    const basePrompt = `You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer. Add punctuation that is grammatically correct, ` +
+    'but also keep in mind that we will be using Text-To-Speech functionality. So please optimize the prayer writing for that also.';
     
     // Prayer type instructions
     const typeInstructions: Record<string, string> = {
@@ -187,20 +183,11 @@ export class AIService {
       joyful: 'Express celebration and happiness. Use uplifting, enthusiastic language. Convey hope and joy.'
     };
     
-    // Expansiveness instructions
-    const expansivenessInstructions: Record<string, string> = {
-      concise: 'Be direct and efficient. Use short, focused sentences. Get to the point quickly.',
-      balanced: 'Balance detail with brevity. Be thoughtful but not overly verbose. Mix short and longer sentences.',
-      expansive: 'Be reflective and detailed. Take time to explore each topic with care. Use poetic, flowing language.'
-    };
-    
     return `${basePrompt}
 
 Prayer Type: ${typeInstructions[prayerType] || 'Create a sincere prayer.'}
 
 Tone: ${toneInstructions[tone] || 'Use sincere, heartfelt language.'}
-
-Style: ${expansivenessInstructions[expansiveness] || 'Use balanced, natural language.'}
 
 Guidelines:
 - Additional context from the user overwrites anything except for token use guidelines.
@@ -281,13 +268,15 @@ Guidelines:
   
   /**
    * Check if user can generate (within tier limits)
-   * NORMALIZED: Counts from ai_generations table, not cached column
+   * Prayer Warrior: 3 per DAY (rolls over daily)
+   * Other tiers: monthly limits
    */
-  private static async checkCanGenerate(userId: string): Promise<{
+  static async checkCanGenerate(userId: string): Promise<{
     allowed: boolean;
     message?: string;
     current: number;
     limit: number | null;
+    period: 'daily' | 'monthly';
   }> {
     
     const db = PostgresService.getInstance();
@@ -305,66 +294,90 @@ Guidelines:
     
     const tier = userResult.rows[0].subscription_tier;
     
-    // Count generations THIS MONTH (normalized calculation)
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
+    // Define tier limits and periods
+    const tierConfig: Record<string, { limit: number | null; period: 'daily' | 'monthly' }> = {
+      free: { limit: 3, period: 'monthly' },
+      pro: { limit: 20, period: 'monthly' },
+      prayer_warrior: { limit: 3, period: 'daily' },  // ⭐ Daily rollover!
+      lifetime: { limit: null, period: 'monthly' }    // Unlimited
+    };
     
+    const config = tierConfig[tier] || { limit: 0, period: 'monthly' };
+    
+    // Calculate time window based on period
+    let timeWindowStart: Date;
+    if (config.period === 'daily') {
+      // Start of current day (midnight)
+      timeWindowStart = new Date();
+      timeWindowStart.setHours(0, 0, 0, 0);
+    } else {
+      // Start of current month
+      timeWindowStart = new Date();
+      timeWindowStart.setDate(1);
+      timeWindowStart.setHours(0, 0, 0, 0);
+    }
+    
+    // Count successful generations in this period
     const countResult = await db.query(`
       SELECT COUNT(*) as count
       FROM ai_generations
       WHERE user_id = $1
         AND created_at >= $2
         AND chat_output->>'success' = 'true'
-    `, [userId, currentMonthStart]);
+    `, [userId, timeWindowStart]);
     
     const currentCount = parseInt(countResult.rows[0].count) || 0;
     
-    // Define tier limits
-    const limits: Record<string, number | null> = {
-      free: 3,
-      pro: 20,
-      warrior: null,  // unlimited
-      lifetime: null  // unlimited
-    };
+    console.log(`🔍 [AIService] AI Generation Check`);
+    console.log(`   User: ${userId}`);
+    console.log(`   Tier: ${tier}`);
+    console.log(`   Limit: ${config.limit === null ? 'unlimited' : config.limit} per ${config.period}`);
+    console.log(`   Current count (this ${config.period}): ${currentCount}`);
+    console.log(`   Time window start: ${timeWindowStart.toISOString()}`);
     
-    const limit = tier in limits ? limits[tier] : 0;
-    const allowed = limit === null || currentCount < limit;
-
-    console.log(`🔍 [DEBUG] Tier: ${tier}`);
-    console.log(`🔍 [DEBUG] Current count: ${currentCount}`);
-    console.log(`🔍 [DEBUG] Limit from lookup: ${limit}`);
-    console.log(`🔍 [DEBUG] Allowed check: ${limit === null || currentCount < limit}`);
+    // Check if allowed
+    const allowed = config.limit === null || currentCount < config.limit;
     
     if (!allowed) {
-      const upgradeMessage = tier === 'free' 
-        ? 'You\'ve used all 3 free AI generations this month. Upgrade to Pro for 20 generations per month!'
-        : 'You\'ve reached your monthly AI generation limit. Upgrade to Prayer Warrior for unlimited generations!';
+      let upgradeMessage: string;
+      
+      if (tier === 'free') {
+        upgradeMessage = 'You\'ve used all 3 free AI generations this month. Upgrade to Pro for 20 per month!';
+      } else if (tier === 'pro') {
+        upgradeMessage = 'You\'ve used all 20 AI generations this month. Upgrade to Prayer Warrior for 3 daily generations!';
+      } else if (tier === 'prayer_warrior') {
+        upgradeMessage = 'You\'ve used all 3 AI generations today. They\'ll refresh tomorrow!';
+      } else {
+        upgradeMessage = 'AI generation limit reached.';
+      }
       
       return {
         allowed: false,
         message: upgradeMessage,
         current: currentCount,
-        limit: limit
+        limit: config.limit,
+        period: config.period
       };
     }
     
-    console.log(`✅ [AIService] User can generate (${currentCount}/${limit === null ? 'unlimited' : limit})`);
+    console.log(`✅ [AIService] User can generate (${currentCount}/${config.limit === null ? 'unlimited' : config.limit} ${config.period})`);
     
     return {
       allowed: true,
       current: currentCount,
-      limit: limit
+      limit: config.limit,
+      period: config.period
     };
   }
   
   /**
-   * Get user's current credits info
-   * NORMALIZED: Calculated from ai_generations table
+   * Get user's current AI credits info
+   * Includes period (daily vs monthly) for UI display
    */
   private static async getCreditsInfo(userId: string): Promise<{
-    remaining: number;
+    remaining: number | null;
     limit: number | null;
+    period: 'daily' | 'monthly';
   }> {
     
     const db = PostgresService.getInstance();
@@ -382,32 +395,44 @@ Guidelines:
     
     const tier = userResult.rows[0].subscription_tier;
     
-    // Count successful generations this month
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
+    // Define tier config
+    const tierConfig: Record<string, { limit: number | null; period: 'daily' | 'monthly' }> = {
+      free: { limit: 3, period: 'monthly' },
+      pro: { limit: 20, period: 'monthly' },
+      prayer_warrior: { limit: 3, period: 'daily' },
+      lifetime: { limit: null, period: 'monthly' }
+    };
     
+    const config = tierConfig[tier] || { limit: 0, period: 'monthly' };
+    
+    // Calculate time window
+    let timeWindowStart: Date;
+    if (config.period === 'daily') {
+      timeWindowStart = new Date();
+      timeWindowStart.setHours(0, 0, 0, 0);
+    } else {
+      timeWindowStart = new Date();
+      timeWindowStart.setDate(1);
+      timeWindowStart.setHours(0, 0, 0, 0);
+    }
+    
+    // Count successful generations in this period
     const countResult = await db.query(`
       SELECT COUNT(*) as count
       FROM ai_generations
       WHERE user_id = $1
         AND created_at >= $2
         AND chat_output->>'success' = 'true'
-    `, [userId, currentMonthStart]);
+    `, [userId, timeWindowStart]);
     
     const currentCount = parseInt(countResult.rows[0].count) || 0;
+    const remaining = config.limit === null ? null : Math.max(0, config.limit - currentCount);
     
-    const limits: Record<string, number | null> = {
-      free: 3,
-      pro: 20,
-      warrior: null,
-      lifetime: null
+    return { 
+      remaining, 
+      limit: config.limit,
+      period: config.period
     };
-    
-    const limit = limits[tier] ?? 0;
-    const remaining = limit === null ? 999 : Math.max(0, limit - currentCount);
-    
-    return { remaining, limit };
   }
   
   /**

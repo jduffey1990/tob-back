@@ -1,6 +1,6 @@
 //
 // AI Prayer Generation Models
-// tob-back/src/models/aiGeneration.ts
+// src/models/aiItems.ts
 //
 
 // ============================================
@@ -36,8 +36,7 @@ export interface PrayerGenerationRequest {
   // Prayer settings
   prayerType: PrayerType;
   tone: PrayerTone;
-  length: PrayerLength;                 // NEW: You're missing this!
-  expansiveness: PrayerExpansiveness;   // NEW: You're missing this!
+  length: PrayerLength;
   
   // Optional context
   customContext?: string | null;
@@ -57,7 +56,6 @@ export interface PrayOnItItemPayload {
 export type PrayerType = 'gratitude' | 'intercession' | 'petition' | 'confession' | 'praise';
 export type PrayerTone = 'formal' | 'conversational' | 'contemplative' | 'joyful';
 export type PrayerLength = 'brief' | 'standard' | 'extended';
-export type PrayerExpansiveness = 'concise' | 'balanced' | 'expansive';
 
 // ============================================
 // Response Model (what we return to iOS)
@@ -67,8 +65,9 @@ export interface PrayerGenerationResponse {
   success: true;
   generatedTitle: string;               // prayers saved have titles too
   generatedText: string;                // The AI-generated prayer
-  creditsRemaining: number;             // How many AI generations left this month
+  creditsRemaining: number | null;      // ✅ FIXED: null = unlimited
   creditsLimit: number | null;          // null = unlimited
+  creditsPeriod?: 'daily' | 'monthly';  // ✅ NEW: for UI display
   
   metadata: {
     modelUsed: string;                  // e.g., "gpt-4o-mini"
@@ -85,7 +84,7 @@ export interface PrayerGenerationError {
   success: false;
   error: string;
   code: 'LIMIT_REACHED' | 'INVALID_INPUT' | 'AI_ERROR' | 'SERVER_ERROR';
-  creditsRemaining?: number;
+  creditsRemaining?: number | null;     // ✅ FIXED: Allow null here too
 }
 
 // ============================================
