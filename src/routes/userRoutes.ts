@@ -8,6 +8,8 @@ import { EmailService } from '../controllers/email.service';
 import { UserService } from '../controllers/userService';
 import { UserSettings } from '../models/user';
 import type { UserSafe } from '../models/user'; // our TS model (id is string UUID)
+import { activationTokenService } from '../controllers/tokenService';
+
 
 
 async function verifyCaptcha(token: string | null, minScore = 0.5): Promise<{ success: boolean; score: number | null }> {
@@ -200,8 +202,16 @@ export const userRoutes : ServerRoute[] = [
           status: "inactive"
         });
         
-        // TODO: Send activation email here
-        await EmailService.sendActivationEmail(newUser.email, activationToken);
+        // Create activation token
+        const activationToken = await activationTokenService.createActivationToken(
+          newUser.id, 
+          newUser.email
+        );
+
+        // Send activation email
+        const emailService = new EmailService();
+        await emailService.sendActivationEmail(newUser.email, activationToken);
+
         
         return h.response(newUser).code(201);
       } catch (error: any) {
