@@ -27,6 +27,8 @@ const jwtSecret = process.env.JWT_SECRET
 
 let cachedLambdaHandler: any
 
+console.log('Node version:', process.version);
+
 // ---- Helper: ensure route arrays are correctly typed ----
 // (Do this in each routes file instead if you prefer)
 function asServerRoutes<T extends ServerRoute[]>(routes: T): T { return routes }

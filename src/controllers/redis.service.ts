@@ -1,76 +1,132 @@
 // src/controllers/redis.service.ts
-// Redis service for TTS audio build state tracking
+// Hybrid Redis service: ioredis for local dev, Upstash HTTP SDK for production
 
-import Redis from 'ioredis';
-import dotenv from 'dotenv';
+import { Redis as UpstashRedis } from '@upstash/redis';
+import IORedis from 'ioredis';
 
-dotenv.config();
+type RedisClient = IORedis | UpstashRedis;
 
-export class RedisService {
-  private static instance: Redis;
+class RedisService {
+  private static client: RedisClient;
+  private static isProduction: boolean;
+  private static initialized: boolean = false;
 
   /**
-   * Get singleton Redis instance
-   * Automatically connects on first call
+   * Initialize Redis client (called automatically on first use)
    */
-  public static getInstance(): Redis {
-    if (!RedisService.instance) {
-      const config = {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD || undefined,
-        // Use different DB for dev vs prod
-        db: process.env.NODE_ENV === 'production' ? 0 : 1,
-        // Retry strategy
-        retryStrategy: (times: number) => {
-          const delay = Math.min(times * 50, 2000);
-          console.log(`⏳ Redis reconnecting in ${delay}ms (attempt ${times})`);
-          return delay;
-        },
-        // Connection timeout
-        connectTimeout: 10000,
-        // Enable offline queue (commands queued while disconnected)
-        enableOfflineQueue: true,
-      };
+  private static init(): void {
+    if (this.initialized) return;
 
-      RedisService.instance = new Redis(config);
+    this.isProduction = process.env.NODE_ENV === 'production';
 
-      RedisService.instance.on('error', (err) => {
-        console.error('❌ Redis error:', err);
-      });
-
-      RedisService.instance.on('connect', () => {
-        console.log('✅ Redis connected');
-      });
-
-      RedisService.instance.on('ready', () => {
-        console.log('✅ Redis ready to accept commands');
-      });
-
-      RedisService.instance.on('reconnecting', () => {
-        console.log('🔄 Redis reconnecting...');
-      });
-
-      RedisService.instance.on('close', () => {
-        console.log('🔌 Redis connection closed');
-      });
+    if (this.isProduction) {
+      // PRODUCTION: Use Upstash HTTP SDK (Lambda-optimized)
+      this.client = this.initUpstashRedis();
+      console.log('🌐 Using Upstash HTTP SDK for production');
+    } else {
+      // DEVELOPMENT: Use ioredis for local Docker
+      this.client = this.initIORedis();
+      console.log('🐳 Using ioredis for local development');
     }
-    
-    return RedisService.instance;
+
+    this.initialized = true;
+  }
+
+  private static initUpstashRedis(): UpstashRedis {
+    const url = process.env.REDIS_URL;
+    const token = process.env.REDIS_TOKEN;
+
+    if (!url || !token) {
+      throw new Error('REDIS_URL and REDIS_TOKEN are required in production');
+    }
+
+    console.log('🔧 Initializing Upstash Redis...');
+    console.log(`   URL: ${url}`);
+    console.log(`   Token: ${token.substring(0, 10)}...`);
+
+    return new UpstashRedis({
+      url,
+      token,
+    });
+  }
+
+  private static initIORedis(): IORedis {
+    const host = process.env.REDIS_HOST || 'redis';
+    const port = parseInt(process.env.REDIS_PORT || '6379');
+    const password = process.env.REDIS_PASSWORD || undefined;
+
+    console.log('🔧 Initializing local Redis (ioredis)...');
+    console.log(`   Host: ${host}`);
+    console.log(`   Port: ${port}`);
+    console.log(`   Password: ${password ? '***' : 'none'}`);
+
+    const client = new IORedis({
+      host,
+      port,
+      password: password || undefined,
+      db: process.env.NODE_ENV === 'production' ? 0 : 1,
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 50, 2000);
+        console.log(`⏳ Redis reconnecting in ${delay}ms (attempt ${times})`);
+        return delay;
+      },
+      connectTimeout: 10000,
+      enableOfflineQueue: true,
+    });
+
+    // Event handlers for ioredis
+    client.on('connect', () => {
+      console.log('✅ Redis connected');
+    });
+
+    client.on('ready', () => {
+      console.log('✅ Redis ready to accept commands');
+    });
+
+    client.on('error', (err) => {
+      console.error('❌ Redis error:', err);
+    });
+
+    client.on('close', () => {
+      console.log('🔌 Redis connection closed');
+    });
+
+    client.on('reconnecting', () => {
+      console.log('🔄 Redis reconnecting...');
+    });
+
+    return client;
+  }
+
+  /**
+   * Get Redis client instance
+   */
+  public static getInstance(): RedisClient {
+    if (!this.initialized) {
+      this.init();
+    }
+    return this.client;
   }
 
   /**
    * Close Redis connection (for graceful shutdown)
    */
   public static async disconnect(): Promise<void> {
-    if (RedisService.instance) {
-      await RedisService.instance.quit();
+    if (!this.initialized) return;
+
+    if (!this.isProduction && this.client instanceof IORedis) {
+      await this.client.quit();
       console.log('✅ Redis disconnected gracefully');
+    } else {
+      console.log('✅ Upstash Redis (no connection to close)');
     }
+
+    this.initialized = false;
   }
 
   // ==============================================
   // TTS-SPECIFIC HELPER METHODS
+  // (Maintains existing API with prayerId AND voiceId)
   // ==============================================
 
   /**
@@ -86,10 +142,17 @@ export class RedisService {
    * Returns true if building, false otherwise
    */
   public static async isBuilding(prayerId: string, voiceId: string): Promise<boolean> {
-    const redis = RedisService.getInstance();
-    const key = RedisService.getTTSKey(prayerId, voiceId);
-    const value = await redis.get(key);
-    return value === 'building';
+    if (!this.initialized) this.init();
+
+    const key = this.getTTSKey(prayerId, voiceId);
+    
+    try {
+      const value = await this.client.get(key);
+      return value === 'building';
+    } catch (error) {
+      console.error(`Redis isBuilding error for key "${key}":`, error);
+      throw error;
+    }
   }
 
   /**
@@ -98,27 +161,55 @@ export class RedisService {
    * Returns true if lock acquired, false if already building
    */
   public static async markAsBuilding(
-    prayerId: string, 
+    prayerId: string,
     voiceId: string,
     ttlSeconds: number = 600
   ): Promise<boolean> {
-    const redis = RedisService.getInstance();
-    const key = RedisService.getTTSKey(prayerId, voiceId);
-    
-    // SETNX = SET if Not eXists (atomic operation)
-    // Returns 1 if key was set, 0 if key already existed
-    const result = await redis.set(key, 'building', 'EX', ttlSeconds, 'NX');
-    
-    return result === 'OK';
+    if (!this.initialized) this.init();
+
+    const key = this.getTTSKey(prayerId, voiceId);
+
+    try {
+      if (this.isProduction) {
+        // Upstash: Use set with NX option
+        const result = await (this.client as UpstashRedis).set(
+          key,
+          'building',
+          { ex: ttlSeconds, nx: true }
+        );
+        return result === 'OK';
+      } else {
+        // ioredis: SETNX = SET if Not eXists (atomic operation)
+        // Returns 1 if key was set, 0 if key already existed
+        const result = await (this.client as IORedis).set(
+          key,
+          'building',
+          'EX',
+          ttlSeconds,
+          'NX'
+        );
+        return result === 'OK';
+      }
+    } catch (error) {
+      console.error(`Redis markAsBuilding error for key "${key}":`, error);
+      throw error;
+    }
   }
 
   /**
    * Clear building state (after audio generation completes)
    */
   public static async clearBuilding(prayerId: string, voiceId: string): Promise<void> {
-    const redis = RedisService.getInstance();
-    const key = RedisService.getTTSKey(prayerId, voiceId);
-    await redis.del(key);
+    if (!this.initialized) this.init();
+
+    const key = this.getTTSKey(prayerId, voiceId);
+
+    try {
+      await this.client.del(key);
+    } catch (error) {
+      console.error(`Redis clearBuilding error for key "${key}":`, error);
+      throw error;
+    }
   }
 
   /**
@@ -126,8 +217,53 @@ export class RedisService {
    * Returns seconds remaining, or -1 if key doesn't exist, -2 if no expiration
    */
   public static async getBuildingTTL(prayerId: string, voiceId: string): Promise<number> {
-    const redis = RedisService.getInstance();
-    const key = RedisService.getTTSKey(prayerId, voiceId);
-    return await redis.ttl(key);
+    if (!this.initialized) this.init();
+
+    const key = this.getTTSKey(prayerId, voiceId);
+
+    try {
+      return await this.client.ttl(key);
+    } catch (error) {
+      console.error(`Redis getBuildingTTL error for key "${key}":`, error);
+      throw error;
+    }
+  }
+
+  // ==============================================
+  // ADDITIONAL UTILITY METHODS (if needed)
+  // ==============================================
+
+  /**
+   * Ping Redis to check connection
+   */
+  public static async ping(): Promise<boolean> {
+    if (!this.initialized) this.init();
+
+    try {
+      const response = await this.client.ping();
+      return response === 'PONG';
+    } catch (error) {
+      console.error('Redis PING failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get all keys matching pattern
+   * WARNING: Use carefully in production!
+   */
+  public static async keys(pattern: string): Promise<string[]> {
+    if (!this.initialized) this.init();
+
+    try {
+      return await this.client.keys(pattern);
+    } catch (error) {
+      console.error(`Redis KEYS error for pattern "${pattern}":`, error);
+      throw error;
+    }
   }
 }
+
+// Export singleton instance helper for compatibility
+export const redisService = RedisService;
+export default RedisService;

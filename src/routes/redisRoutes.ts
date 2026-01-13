@@ -1,6 +1,6 @@
 // src/routes/prayerRoutes.ts
 import { ServerRoute } from '@hapi/hapi';
-import { RedisService } from '../controllers/redis.service';
+import { redisService } from '../controllers/redis.service';
 
 export const redisRoutes: ServerRoute[] = [
   // ============================================
@@ -10,7 +10,7 @@ export const redisRoutes: ServerRoute[] = [
   method: 'GET',
   path: '/test-redis',
   handler: async (request, h) => {
-    const redis = RedisService.getInstance();
+    const redis = redisService.getInstance();
     await redis.set('test-key', 'hello-redis');
     const value = await redis.get('test-key');
     return { success: true, value };

@@ -71,6 +71,18 @@ services:
       - ./src:/app/src  # Hot reload source code
       - ./dist:/app/dist
       - tob_node_modules:/app/node_modules  # Don't overwrite node_modules
+
+    # ⚠️ IMPORTANT: node_modules is cached in a Docker volume!
+      # When you add NEW dependencies to package.json:
+      # 1. Stop containers:        docker-compose down
+      # 2. Remove node_modules:    docker-compose build --no-cache api
+      # 3. Rebuild & start:        docker-compose up -d
+      #
+      # Quick command: docker-compose down && docker volume rm tobback_tob_node_modules && docker-compose up --build
+      #
+      # Or use this alias in your shell:
+      # alias dc-rebuild="docker-compose down && docker volume rm tobback_tob_node_modules && docker-compose up --build"
+
     depends_on:
       postgres:
         condition: service_healthy

@@ -137,3 +137,27 @@ variable "app_url" {
   type        = string
   sensitive   = true
 }
+
+variable "redis_host" {
+  description = "Redis host endpoint (Upstash endpoint)"
+  type        = string
+  sensitive   = false
+}
+
+variable "redis_port" {
+  description = "Redis port (usually 6379 or 6380 for TLS)"
+  type        = string
+  default     = "6379"
+}
+
+variable "redis_token" {
+  description = "Redis password/token (Upstash API key)"
+  type        = string
+  sensitive   = true
+}
+
+variable "redis_tls" {
+  description = "Whether to use TLS for Redis connection"
+  type        = string
+  default     = "true"
+}

@@ -3,7 +3,7 @@
 
 import { AudioFileRow, AudioState, AudioStateResponse, rowToAudioFile } from '../models/audioItem';
 import { PostgresService } from './postgres.service';
-import { RedisService } from './redis.service';
+import { redisService } from './redis.service';
 import { S3Service } from './s3.service';
 import { TTSService } from './ttsService';
 
@@ -29,12 +29,12 @@ export class AudioService {
     console.log(`🔍 [AudioService] Checking state: prayer=${prayerId}, voice=${voiceId}`);
     
     // 1️⃣ Check Redis first - is it currently building?
-    const isBuilding = await RedisService.isBuilding(prayerId, voiceId);
+    const isBuilding = await redisService.isBuilding(prayerId, voiceId);
 
     console.log(`Redis isBuildng = ${isBuilding}`)
     
     if (isBuilding) {
-      const ttl = await RedisService.getBuildingTTL(prayerId, voiceId);
+      const ttl = await redisService.getBuildingTTL(prayerId, voiceId);
       console.log(`   ⏳ BUILDING (${ttl}s remaining)`);
       
       return {
@@ -213,7 +213,7 @@ export class AudioService {
     
     try {
       // 1️⃣ Acquire Redis lock
-      const lockAcquired = await RedisService.markAsBuilding(prayerId, voiceId, 600);
+      const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
       
       if (!lockAcquired) {
         console.log(`⚠️ [AudioGeneration] Lock already held - generation in progress`);
@@ -281,7 +281,7 @@ export class AudioService {
         
       } finally {
         // 6️⃣ ALWAYS clear Redis lock (even if generation failed)
-        await RedisService.clearBuilding(prayerId, voiceId);
+        await redisService.clearBuilding(prayerId, voiceId);
         console.log(`🔓 [AudioGeneration] Lock released`);
       }
       
@@ -290,7 +290,7 @@ export class AudioService {
       
       // Make sure lock is cleared on error
       try {
-        await RedisService.clearBuilding(prayerId, voiceId);
+        await redisService.clearBuilding(prayerId, voiceId);
         console.log(`🔓 [AudioGeneration] Lock released after error`);
       } catch (cleanupError) {
         console.error(`❌ [AudioGeneration] Failed to release lock:`, cleanupError);

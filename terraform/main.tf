@@ -70,9 +70,11 @@ resource "aws_lambda_function" "main" {
       # Storage
       S3_AUDIO_BUCKET = var.s3_audio_bucket
       
-      # Redis (if Lambda needs direct access)
-      # REDIS_HOST = var.redis_host
-      # REDIS_PORT = var.redis_port
+      # Redis 
+      REDIS_HOST     = var.redis_host
+      REDIS_PORT     = var.redis_port
+      REDIS_TOKEN = var.redis_password
+      REDIS_TLS      = var.redis_tls
     }
   }
   
