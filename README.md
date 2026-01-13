@@ -1,63 +1,15 @@
-# 👤 Mozaiq Users Microservice
+# 👤 Tower of Babble prayer app backend
 
-This microservice handles all user-related functionality for the Mozaiq app, including authentication, account creation, and user data management. Built with Node.js, TypeScript, MongoDB, and Hapi.
 
----
 
 ## ⚙️ Tech Stack
 
-- **Node.js** + **TypeScript**
-- **Hapi.js** for routing and API structure
-- **Postgres** for database storage
-- **JWT** for authentication
-- **Bcrypt** for secure password hashing
-- **Jest** for testing
-- **Docker** for containerized workflows
 
 ---
 
 ## 🔗 Related Repositories
 
-- [Business Verification Microservice](https://github.com/jduffey1990/bus-verify-wsapp)
-- [UI/UX Frontend](https://github.com/jduffey1990/wsapp)
 
----
-
-## 🚀 Run Locally
-
-1. **Clone the repo:**
-
-   ```bash
-   git clone https://github.com/jduffey1990/wsapp-users.git
-   cd wsapp-users
-   ```
-
-2. **Install dependencies:**
-
-   ```bash
-   npm install
-   ```
-
-3. **Create a `.env` file in the root:**
-
-   ```
-   PORT=3000
-   JWT_SECRET=yourSuperSecretKey
-   
-   ```
-
-4. **Start the development server:**
-
-   ```bash
-   npm run dev
-   ```
-
-5. **Run tests:**
-   ```bash
-   npm test
-   ```
-
----
 
 ## 🧩 API Responsibilities
 
@@ -68,84 +20,139 @@ This service is responsible for:
 - Generating and validating JWTs
 - Providing user info to other services (e.g. brackets service)
 
----
-
-## 🐳 Docker
-
-If you're running this as part of a full-stack app:
-
-- Make sure `docker-compose.yml` includes the correct service and MongoDB configuration.  Locally, `docker-compose.yml` is necessary to map the ports properly versus the self-contained microservices in production
-
-'''
-version: "3.8"
-services:
-  mongo:
-    image: mongo:8
-    container_name: mongo
-    ports:
-      - "27017:27017"
-
-  users:
-    build: ./users
-    env_file:
-      - ./users/.env
-    container_name: services-users
-    ports:
-      - "3001:3000"
-    depends_on:
-      - mongo
-    image: users-image
-
-  brackets:
-    build: ./brackets
-    env_file:
-      - ./brackets/.env
-    container_name: services-brackets
-    ports:
-      - "3002:3000"
-    depends_on:
-      - mongo
-    image: brackets-image
-
-volumes:
-  mongo_data:
-'''
-- Use `docker compose up --build` to spin everything up
-
----
 
 ## 📁 Folder Structure
 
 ```
 .
-├── src/
-│   ├── app.ts           # Entry point
-│   ├── routes/          # Hapi route handlers
-│   ├── controllers/     # Logic for user operations
-│   ├── models/          # User model (interface)
-│   └── scripts/         # Seed script for local 
-├── dist/                # Compiled JS (after build)
-├── .env
+├── buildspec.yml
+├── deploy.js
+├── dist
+│   ├── app.js
+│   ├── controllers
+│   │   ├── aiService.js
+│   │   ├── audioService.js
+│   │   ├── authService.js
+│   │   ├── email.service.js
+│   │   ├── postgres.service.js
+│   │   ├── prayerLimitService.js
+│   │   ├── prayerService.js
+│   │   ├── prayOnItLimitService.js
+│   │   ├── prayOnItService.js
+│   │   ├── redis.service.js
+│   │   ├── s3.service.js
+│   │   ├── tests3.js
+│   │   ├── tokenService.js
+│   │   ├── ttsService.js
+│   │   └── userService.js
+│   ├── models
+│   │   ├── aiItems.js
+│   │   ├── audioItem.js
+│   │   ├── prayer.js
+│   │   ├── prayOnItItem.js
+│   │   ├── ttsItems.js
+│   │   └── user.js
+│   ├── routes
+│   │   ├── audioRoutes.js
+│   │   ├── index.js
+│   │   ├── loginRoutes.js
+│   │   ├── prayerRoutes.js
+│   │   ├── prayOnItRoutes.js
+│   │   ├── redisRoutes.js
+│   │   ├── tokenRoutes.js
+│   │   ├── ttsRoutes.js
+│   │   └── userRoutes.js
+│   ├── scripts
+│   │   ├── seedAllEntry.js
+│   │   ├── seedPrayOnIts.js
+│   │   └── seedUsers.js
+│   └── tests
+│       ├── authService.test.js
+│       ├── postgresService.test.js
+│       ├── prayerService.test.js
+│       └── userService.test.js
+├── DOCKER_SETUP.md
+├── docker-compose.yml
+├── Dockerfile
+├── init-db.sql
+├── jest.config.js
+├── Makefile
+├── package-lock.json
 ├── package.json
+├── README.md
+├── src
+│   ├── app.ts
+│   ├── controllers
+│   │   ├── aiService.ts
+│   │   ├── audioService.ts
+│   │   ├── authService.ts
+│   │   ├── email.service.ts
+│   │   ├── passwordResetServcie.ts
+│   │   ├── postgres.service.ts
+│   │   ├── prayerLimitService.ts
+│   │   ├── prayerService.ts
+│   │   ├── prayOnItLimitService.ts
+│   │   ├── prayOnItService.ts
+│   │   ├── redis.service.ts
+│   │   ├── s3.service.ts
+│   │   ├── tokenService.ts
+│   │   ├── ttsService.ts
+│   │   └── userService.ts
+│   ├── migrations
+│   │   ├── 1765231026799_users-prayers-tokens.js
+│   │   ├── 1765247785790_drop-credits.js
+│   │   ├── 1765832590077_pray-on-it.js
+│   │   ├── 1765921573484_add-user-settings.js
+│   │   ├── 1766088281004_drop-prayer-deleted.js
+│   │   ├── 1766100195335_ai-convos.js
+│   │   ├── 1767459884768_audio-url.js
+│   │   └── 1767821478493_reset-token.js
+│   ├── models
+│   │   ├── aiItems.ts
+│   │   ├── audioItem.ts
+│   │   ├── prayer.ts
+│   │   ├── prayOnItItem.ts
+│   │   ├── ttsItems.ts
+│   │   └── user.ts
+│   ├── public
+│   │   └── activation-succes.html
+│   ├── routes
+│   │   ├── audioRoutes.ts
+│   │   ├── index.ts
+│   │   ├── loginRoutes.ts
+│   │   ├── passwordResetRoutes.ts
+│   │   ├── prayerRoutes.ts
+│   │   ├── prayOnItRoutes.ts
+│   │   ├── redisRoutes.ts
+│   │   ├── tokenRoutes.ts
+│   │   ├── ttsRoutes.ts
+│   │   └── userRoutes.ts
+│   ├── scripts
+│   │   ├── seedAllEntry.ts
+│   │   ├── seedPrayOnIts.ts
+│   │   └── seedUsers.ts
+│   └── tests
+│       ├── authService.test.ts
+│       ├── postgresService.test.ts
+│       ├── prayerService.test.ts
+│       └── userService.test.ts
+├── terraform
+│   ├── backend.tf
+│   ├── iam.tf
+│   ├── main.tf
+│   ├── outputs.tf
+│   ├── placeholder.zip
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
+│   ├── terraform.tfvars
+│   ├── terraform.tfvars.example
+│   └── variables.tf
+├── terraformmain.txt
 ├── tsconfig.json
+├── ztree.txt
+└── zzzzz.json
 ```
-
----
-
-## 🧪 Testing
-
-This repo uses **Jest** for unit testing. You can run tests with:
-
-```bash
-npm test
-```
-
----
 
 ## 📃 License
 
 This project is currently **UNLICENSED** and not available for public reuse.
-
----
-
-Let me know if you want to add route docs, example cURL requests, or set up Swagger for your API docs!
