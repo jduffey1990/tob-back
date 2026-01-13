@@ -5,16 +5,17 @@ import dotenv from 'dotenv'
 import type { IncomingMessage, RequestListener, ServerResponse } from 'http'
 
 import { AuthService } from './controllers/authService'
-import { S3Service } from './controllers/s3.service';
 import { PostgresService } from './controllers/postgres.service'
+import { S3Service } from './controllers/s3.service'
+import { audioRoutes } from './routes/audioRoutes'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
+import { passwordResetRoutes } from './routes/passwordResetRoutes'
 import { prayerRoutes } from './routes/prayerRoutes'
 import { prayOnItRoutes } from './routes/prayOnItRoutes'
 import { redisRoutes } from './routes/redisRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
 import { ttsRoutes } from './routes/ttsRoutes'
 import { userRoutes } from './routes/userRoutes'
-import { audioRoutes } from './routes/audioRoutes'
 
 dotenv.config()
 
@@ -40,20 +41,33 @@ const allRoutes = asServerRoutes([
   ...prayOnItRoutes as unknown as ServerRoute[],
   ...ttsRoutes as unknown as ServerRoute[],
   ...redisRoutes as unknown as ServerRoute[],
-  ...audioRoutes as unknown as ServerRoute[]
+  ...audioRoutes as unknown as ServerRoute[],
+  ...passwordResetRoutes as unknown as ServerRoute[]
 ])
 
 async function buildServer() {
+  // Define allowed origins for CORS
+  // Note: Native iOS app doesn't send Origin header, so it's unaffected by CORS
+  // CORS only restricts browsers from making cross-origin requests
+  const allowedOrigins = NODE_ENV === 'development'
+  ? ['*']  // ✅ Allow all origins in development
+  : [
+      'https://tobprayer.app',
+      'https://www.tobprayer.app'
+    ]
+
   const server = Hapi.server({
     port: PORT,
     host: HOST,
     routes: IS_LAMBDA
-      ? { cors: false } // CORS handled by API Gateway in prod
+      ? { cors: false } // CORS handled by API Gateway in Lambda/production
       : {
           cors: {
-            origin: ['http://localhost:*', 'http://127.0.0.1:*'],
+            origin: allowedOrigins,
             credentials: true,
-            additionalHeaders: ['X-CSRFToken', 'Content-Type', 'Authorization'],
+            additionalHeaders: ['cache-control', 'x-requested-with', 'content-type', 'authorization'],
+            additionalExposedHeaders: ['cache-control', 'x-requested-with'],
+            headers: ['Accept', 'Authorization', 'Content-Type', 'If-None-Match', 'X-CSRFToken']
           },
         },
   })
@@ -76,8 +90,33 @@ async function buildServer() {
     validate: AuthService.validateToken,
   })
 
-  // >>> The call that failed:
-  // Make sure the array is typed as ServerRoute[]
+  // Handle OPTIONS requests for CORS preflight (for non-Lambda environments)
+  // Lambda/API Gateway handles this automatically
+  if (!IS_LAMBDA) {
+    server.route({
+      method: 'OPTIONS',
+      path: '/{any*}',
+      handler: (request, h) => {
+        const response = h.response().code(200);
+        // Manually set the missing header
+        response.header('Access-Control-Allow-Headers', 'content-type, authorization, cache-control, x-requested-with');
+        response.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        return response;
+      },
+      options: {
+        auth: false,
+        cors: {
+          origin: allowedOrigins,
+          credentials: true,
+          additionalHeaders: ['cache-control', 'x-requested-with', 'content-type', 'authorization'],
+          additionalExposedHeaders: ['cache-control', 'x-requested-with'],
+          headers: ['Accept', 'Authorization', 'Content-Type', 'If-None-Match', 'X-CSRFToken']
+        }
+      }
+    });
+  }
+
+  // Register all application routes
   server.route(allRoutes)
 
   // In Lambda we do NOT listen; just initialize.

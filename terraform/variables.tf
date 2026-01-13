@@ -131,3 +131,9 @@ variable "fish_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "app_url" {
+  description = "base application webpage"
+  type        = string
+  sensitive   = true
+}

@@ -1,9 +1,9 @@
 // src/routes/passwordResetRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
-import { passwordResetTokenService } from '../controllers/passwordResetServcie';
-import { EmailService } from '../controllers/email.service';
-import { UserService } from '../controllers/userService';
 import bcrypt from 'bcrypt';
+import { EmailService } from '../controllers/email.service';
+import { passwordResetTokenService } from '../controllers/passwordResetServcie';
+import { UserService } from '../controllers/userService';
 
 const emailService = new EmailService();
 
@@ -131,7 +131,10 @@ export const passwordResetRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { auth: false },
+    options: { 
+      auth: false,
+      cors: true 
+    },
   },
 
   // ===== VERIFY RESET TOKEN (Optional - for frontend to check if token is valid) =====
@@ -171,6 +174,9 @@ export const passwordResetRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { auth: false },
+    options: { 
+      auth: false,
+      cors: true
+     },
   },
 ];

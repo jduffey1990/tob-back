@@ -39,12 +39,40 @@ resource "aws_lambda_function" "main" {
   
   environment {
     variables = {
+      # Service identification
       SERVICE_NAME = var.service_name
       ENVIRONMENT  = var.environment
       PROJECT      = var.project
-      NODE_ENV             = "production"
-      DATABASE_URL         = var.database_url
-      JWT_SECRET           = var.jwt_secret
+      NODE_ENV     = var.node_env
+      
+      # AWS configuration
+      AWS_REGION          = var.aws_region
+      AWS_ACCESS_KEY_ID   = var.aws_access_key_id
+      AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
+      
+      # Database
+      DATABASE_URL = var.database_url
+      
+      # Authentication
+      JWT_SECRET   = var.jwt_secret
+      
+      # AI Services
+      OPENAI_API_KEY    = var.openai_api_key
+      SPEECHIFY_API_KEY = var.speechify_api_key
+      AZURE_TTS_API_KEY = var.azure_tts_api_key
+      AZURE_TTS_REGION  = var.azure_tts_region
+      FISH_API_KEY      = var.fish_api_key
+      
+      # Email & App URLs
+      APP_URL      = var.app_url
+      FROM_EMAIL   = var.from_email
+      
+      # Storage
+      S3_AUDIO_BUCKET = var.s3_audio_bucket
+      
+      # Redis (if Lambda needs direct access)
+      # REDIS_HOST = var.redis_host
+      # REDIS_PORT = var.redis_port
     }
   }
   

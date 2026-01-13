@@ -7,6 +7,7 @@ import { prayOnItRoutes } from './prayOnItRoutes';
 import { ttsRoutes } from './ttsRoutes';
 import { redisRoutes } from './redisRoutes'
 import { audioRoutes } from './audioRoutes';
+import { passwordResetRoutes } from './passwordResetRoutes';
 
 
 export default [
@@ -18,5 +19,6 @@ export default [
   ...prayOnItRoutes,
   ...ttsRoutes,
   ...redisRoutes,
-  ...audioRoutes
+  ...audioRoutes,
+  ...passwordResetRoutes
 ];

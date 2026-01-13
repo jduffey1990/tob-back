@@ -201,7 +201,7 @@ export const userRoutes : ServerRoute[] = [
         });
         
         // TODO: Send activation email here
-        // await EmailService.sendActivationEmail(newUser.email, activationToken);
+        await EmailService.sendActivationEmail(newUser.email, activationToken);
         
         return h.response(newUser).code(201);
       } catch (error: any) {
