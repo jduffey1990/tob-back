@@ -138,26 +138,32 @@ variable "app_url" {
   sensitive   = true
 }
 
-variable "redis_host" {
-  description = "Redis host endpoint (Upstash endpoint)"
-  type        = string
-  sensitive   = false
-}
-
-variable "redis_port" {
-  description = "Redis port (usually 6379 or 6380 for TLS)"
-  type        = string
-  default     = "6379"
-}
-
-variable "redis_token" {
-  description = "Redis password/token (Upstash API key)"
+variable "redis_url" {
+  description = "Full Redis URL (Upstash endpoint with protocol)"
   type        = string
   sensitive   = true
 }
 
-variable "redis_tls" {
-  description = "Whether to use TLS for Redis connection"
+variable "redis_token" {
+  description = "Full Redis URL (Upstash endpoint with protocol)"
   type        = string
-  default     = "true"
+  sensitive   = true
+}
+
+variable "cleanup_api_key" {
+  description = "Event Bridge connection secret key"
+  type        = string
+  sensitive   = true
+}
+
+variable "from_email" {
+  description = "From email address for sending emails"
+  type        = string
+  default     = "noreply@tobprayer.app"
+}
+
+variable "s3_audio_bucket" {
+  description = "S3 bucket name for audio files"
+  type        = string
+  default     = "tob-audio-files"
 }

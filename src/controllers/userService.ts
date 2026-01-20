@@ -1,6 +1,7 @@
 // src/controllers/userService.ts
 import { PostgresService } from './postgres.service';
 import { User, UserSettings, DEFAULT_USER_SETTINGS } from '../models/user';
+import { S3Service } from './s3.service'
 
 // Expose a "safe" user for reads (no passwordHash)
 export type UserSafe = Omit<User, 'passwordHash'>;
@@ -257,6 +258,48 @@ static async getUserInfo(userId: string): Promise<{
     if (!rows[0]) throw new Error('User not found');
     return mapRowToUserSafe(rows[0]);
   }
+
+  /**
+   * Hard delete users that have been soft-deleted for more than 30 days
+   * Called by scheduled Lambda event daily
+   */
+  public static async cleanupOldDeletedUsers(): Promise<{ deletedCount: number }> {
+    const db = PostgresService.getInstance();
+    
+    try {
+      const { rows: usersToDelete } = await db.query(`
+        SELECT id, email 
+        FROM users 
+        WHERE deleted_at IS NOT NULL 
+          AND deleted_at < NOW() - INTERVAL '30 days'
+      `);
+      
+      console.log(`Found ${usersToDelete.length} users to permanently delete`);
+      
+      for (const user of usersToDelete) {
+        // NEW: Delete S3 audio files first
+        const { rows: prayers } = await db.query(
+          `SELECT id FROM prayers WHERE user_id = $1::uuid`,
+          [user.id]
+        );
+        
+        for (const prayer of prayers) {
+          await S3Service.deleteAllAudioForPrayer(prayer.id);
+        }
+        
+        // Then delete user (CASCADE handles DB)
+        await db.query(`DELETE FROM users WHERE id = $1::uuid`, [user.id]);
+        console.log(`Deleted user: ${user.email}`);
+      }
+      
+      return { deletedCount: usersToDelete.length };
+      
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+      throw error;
+    }
+  }
+
 
   /**
    * Hard delete: actually remove the row from the database.

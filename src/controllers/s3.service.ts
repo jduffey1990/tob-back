@@ -1,7 +1,15 @@
 // src/controllers/s3.service.ts
 // S3 service for storing TTS audio files
 
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { 
+  DeleteObjectCommand, 
+  DeleteObjectsCommand,      
+  GetObjectCommand, 
+  ListObjectsV2Command,      
+  PutObjectCommand, 
+  S3Client 
+} from '@aws-sdk/client-s3';
+
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export class S3Service {
@@ -157,6 +165,50 @@ export class S3Service {
       throw new Error(`S3 delete failed: ${error.message}`);
     }
   }
+
+  /**
+   * Delete all audio files for a prayer (all voice versions)
+   * Called when user account is deleted
+   * 
+   * @param prayerId - Prayer UUID
+   */
+  public static async deleteAllAudioForPrayer(prayerId: string): Promise<void> {
+    S3Service.ensureInitialized();
+
+    const prefix = `audio/${prayerId}/`;
+
+    try {
+      // List all objects for this prayer
+      const listCommand = new ListObjectsV2Command({
+        Bucket: S3Service.bucket,
+        Prefix: prefix
+      });
+
+      const listResponse = await S3Service.client.send(listCommand);
+
+      if (!listResponse.Contents || listResponse.Contents.length === 0) {
+        console.log(`No audio files found for prayer ${prayerId}`);
+        return;
+      }
+
+      // Delete all found objects
+      const deleteCommand = new DeleteObjectsCommand({
+        Bucket: S3Service.bucket,
+        Delete: {
+          Objects: listResponse.Contents.map(obj => ({ Key: obj.Key! }))
+        }
+      });
+
+      await S3Service.client.send(deleteCommand);
+
+      console.log(`✅ Deleted ${listResponse.Contents.length} audio files for prayer ${prayerId}`);
+
+    } catch (error: any) {
+      console.error(`❌ S3 deletion failed for prayer ${prayerId}:`, error);
+      // Don't throw - we still want to delete DB records even if S3 fails
+    }
+  }
+
 
   /**
    * Check if an audio file exists in S3

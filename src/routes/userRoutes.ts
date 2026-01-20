@@ -328,6 +328,39 @@ export const userRoutes : ServerRoute[] = [
       }
     },
     options: { auth: 'jwt' },
+  },
+
+  {
+    method: 'POST',
+    path: '/cleanup/deleted-users',
+    options: {
+      auth: false,  // EventBridge doesn't use JWT
+      description: 'Cleanup deleted users (called by EventBridge)',
+      tags: ['api', 'cleanup']
+    },
+    handler: async (request: any, h: any) => {
+      try {
+        // Optional: Add API key validation for security
+        const apiKey = request.headers['x-api-key'];
+        if (apiKey !== process.env.CLEANUP_API_KEY) {
+          return h.response({ error: 'Unauthorized' }).code(401);
+        }
+        
+        const result = await UserService.cleanupOldDeletedUsers();
+        
+        return h.response({
+          success: true,
+          message: `Deleted ${result.deletedCount} users`,
+          deletedCount: result.deletedCount
+        }).code(200);
+        
+      } catch (error: any) {
+        console.error('Cleanup endpoint error:', error);
+        return h.response({ 
+          error: error.message || 'Cleanup failed' 
+        }).code(500);
+      }
+    }
   }
 
 ];

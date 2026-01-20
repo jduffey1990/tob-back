@@ -7,6 +7,7 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'http'
 import { AuthService } from './controllers/authService'
 import { PostgresService } from './controllers/postgres.service'
 import { S3Service } from './controllers/s3.service'
+import { UserService } from './controllers/userService'
 import { audioRoutes } from './routes/audioRoutes'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { passwordResetRoutes } from './routes/passwordResetRoutes'
@@ -144,7 +145,33 @@ async function startLocal() {
 
 // ---------- Lambda entry ----------
 export const handler = async (event: any, context: any) => {
+  // Handle EventBridge scheduled cleanup event
+  if (event.action === 'cleanup_deleted_data') {
+    console.log('🗑️  Running scheduled data cleanup...');
+    try {
+      const result = await UserService.cleanupOldDeletedUsers();
+      console.log(`✅ Cleanup complete: Deleted ${result.deletedCount} users`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          deletedCount: result.deletedCount,
+          message: `Deleted ${result.deletedCount} users`
+        })
+      };
+    } catch (error: any) {
+      console.error('❌ Cleanup failed:', error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          error: error.message
+        })
+      };
+    }
+  }
   
+  // Otherwise, handle normal HTTP requests via serverless-express
   try {
     if (!cachedLambdaHandler) {
       const server = await buildServer()

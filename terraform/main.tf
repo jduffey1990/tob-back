@@ -45,11 +45,6 @@ resource "aws_lambda_function" "main" {
       PROJECT      = var.project
       NODE_ENV     = var.node_env
       
-      # AWS configuration
-      AWS_REGION          = var.aws_region
-      AWS_ACCESS_KEY_ID   = var.aws_access_key_id
-      AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
-      
       # Database
       DATABASE_URL = var.database_url
       
@@ -71,10 +66,11 @@ resource "aws_lambda_function" "main" {
       S3_AUDIO_BUCKET = var.s3_audio_bucket
       
       # Redis 
-      REDIS_HOST     = var.redis_host
-      REDIS_PORT     = var.redis_port
-      REDIS_TOKEN = var.redis_password
-      REDIS_TLS      = var.redis_tls
+      REDIS_URL   = var.redis_url
+      REDIS_TOKEN = var.redis_token
+
+      # Data Cleanup Security
+      CLEANUP_API_KEY = var.cleanup_api_key
     }
   }
   
@@ -324,3 +320,40 @@ resource "aws_codepipeline" "main" {
     Type = "codepipeline"
   })
 }
+
+# ============================================
+# EVENTBRIDGE - DAILY DATA CLEANUP
+# ============================================
+
+# EventBridge rule to trigger cleanup daily at 3 AM UTC
+resource "aws_cloudwatch_event_rule" "data_cleanup_schedule" {
+  name                = "${var.service_name}-data-cleanup-daily"
+  description         = "Delete soft-deleted users older than 30 days"
+  schedule_expression = "cron(0 3 * * ? *)"  # 3 AM UTC daily
+  
+  tags = merge(local.common_tags, {
+    Type = "eventbridge-rule"
+  })
+}
+
+# Target Lambda directly
+resource "aws_cloudwatch_event_target" "cleanup_lambda" {
+  rule      = aws_cloudwatch_event_rule.data_cleanup_schedule.name
+  target_id = "CleanupLambdaTarget"
+  arn       = aws_lambda_function.main.arn
+  
+  # Pass event data to Lambda
+  input = jsonencode({
+    action = "cleanup_deleted_data"
+  })
+}
+
+# Grant EventBridge permission to invoke Lambda
+resource "aws_lambda_permission" "allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.main.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.data_cleanup_schedule.arn
+}
+
