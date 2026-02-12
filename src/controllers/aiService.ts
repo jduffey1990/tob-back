@@ -1,4 +1,4 @@
-// src/controllers/aiService.ts (REVISED - Daily Limits for Prayer Warrior)
+// src/controllers/aiService.ts (REVISED - Daily Limits for Prayer Warrior + Denomination Support)
 import OpenAI from 'openai';
 import {
   AIGeneration,
@@ -7,6 +7,7 @@ import {
   PrayerGenerationResponse
 } from '../models/aiItems';
 import { PostgresService } from './postgres.service';
+import { UserService } from './userService'; // NEW: Import UserService
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -23,11 +24,11 @@ export class AIService {
   ): Promise<PrayerGenerationResponse> {
     
     const db = PostgresService.getInstance();
+  
     
-    console.log(`🤖 [AIService] Generating prayer for user ${userId}`);
-    console.log(`   Type: ${request.prayerType}, Tone: ${request.tone}`);
-    
-    console.log(`   Items: ${request.prayOnItItems.length}`);
+    // NEW: Fetch user to get denomination
+    const user = await UserService.findUserById(userId);
+    const denomination = user?.denomination || 'Christian';  // Fallback to Christian if not found
     
     // 1. Check if user can generate (within tier limits)
     const canGenerate = await this.checkCanGenerate(userId);
@@ -43,16 +44,12 @@ export class AIService {
     `, [userId, JSON.stringify(request)]);
     
     const generationId = generationResult.rows[0].id;
-    console.log(`📝 [AIService] Created generation record: ${generationId}`);
     
     try {
-      // 3. Call OpenAI
+      // 3. Call OpenAI with denomination
       const startTime = Date.now();
-      const openAIResponse = await this.callOpenAI(request);
+      const openAIResponse = await this.callOpenAI(request, denomination);  // NEW: Pass denomination
       const responseTime = Date.now() - startTime;
-      
-      console.log(`✅ [AIService] OpenAI responded in ${responseTime}ms`);
-      console.log(`   Tokens: ${openAIResponse.usage.total_tokens} (${openAIResponse.usage.prompt_tokens} in, ${openAIResponse.usage.completion_tokens} out)`);
       
       // 4. Generate title for the prayer
       const generatedTitle = this.generateTitle(request);
@@ -87,9 +84,6 @@ export class AIService {
         WHERE id = $2
       `, [JSON.stringify(response), generationId]);
       
-      console.log(`✅ [AIService] Prayer generated successfully`);
-      console.log(`   Credits remaining: ${remaining}/${limit || 'unlimited'} (${period})`);
-      
       return response;
       
     } catch (error: any) {
@@ -118,16 +112,14 @@ export class AIService {
   /**
    * Call OpenAI API with the prayer generation request
    */
-  private static async callOpenAI(request: PrayerGenerationRequest): Promise<OpenAIResponse> {
+  private static async callOpenAI(
+    request: PrayerGenerationRequest,
+    denomination: string  // NEW: Accept denomination
+  ): Promise<OpenAIResponse> {
     
-    const systemPrompt = this.buildSystemPrompt(request.prayerType, request.tone);
+    const systemPrompt = this.buildSystemPrompt(request.prayerType, request.tone, denomination);  // NEW: Pass denomination
     const userPrompt = this.buildUserPrompt(request);
     const maxTokens = this.getMaxTokensForLength(request.length);
-    
-    console.log(`🔵 [AIService] Calling OpenAI...`);
-    console.log(`   System prompt length: ${systemPrompt.length} chars`);
-    console.log(`   User prompt length: ${userPrompt.length} chars`);
-    console.log(`   Max tokens: ${maxTokens}`);
     
     try {
         const completion = await openai.chat.completions.create({
@@ -140,11 +132,6 @@ export class AIService {
         max_tokens: maxTokens,
         });
         
-        console.log(`📊 [AIService] OpenAI response received`);
-        console.log(`   ID: ${completion.id}`);
-        console.log(`   Model: ${completion.model}`);
-        console.log(`   Finish reason: ${completion.choices[0].finish_reason}`);
-        
         return completion as OpenAIResponse;
         
     } catch (error: any) {
@@ -156,15 +143,19 @@ export class AIService {
   }
   
   /**
-   * Build system prompt based on prayer type, tone, and expansiveness
+   * Build system prompt based on prayer type, tone, and denomination
    */
   private static buildSystemPrompt(
     prayerType: string, 
-    tone: string, 
+    tone: string,
+    denomination: string  // NEW: Accept denomination
   ): string {
     
-    const basePrompt = `You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer. Add punctuation that is grammatically correct, ` +
-    'but also keep in mind that we will be using Text-To-Speech functionality. So please optimize the prayer writing for that also.';
+    // NEW: Base prompt now includes denomination
+    const basePrompt = `You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer. 
+Generate a prayer in the style and tradition of ${denomination}. ${this.getDenominationGuidance(denomination)}
+
+Add punctuation that is grammatically correct, but also keep in mind that we will be using Text-To-Speech functionality. So please optimize the prayer writing for that also.`;
     
     // Prayer type instructions
     const typeInstructions: Record<string, string> = {
@@ -190,10 +181,108 @@ Prayer Type: ${typeInstructions[prayerType] || 'Create a sincere prayer.'}
 Tone: ${toneInstructions[tone] || 'Use sincere, heartfelt language.'}
 
 Guidelines:
+- Reflect the theological and liturgical style of ${denomination}
 - Additional context from the user overwrites anything except for token use guidelines.
 - Include the specific people and situations mentioned
 - Follow traditional prayer structure: Opening address → Body (main content) → Closing
-- End with "Amen" or appropriate closing`;
+- End with "Amen" or appropriate closing for ${denomination}`;
+  }
+  
+  /**
+   * NEW: Get denomination-specific guidance for prayer generation
+   */
+  private static getDenominationGuidance(denomination: string): string {
+    const lowerDenom = denomination.toLowerCase();
+    
+    // Christianity - Catholic
+    if (lowerDenom.includes('catholic')) {
+      return 'Use traditional Catholic prayer language. May reference saints, Mary, or the Trinity. Consider formal liturgical structure. May include phrases like "Holy Mother" or "Blessed Virgin."';
+    }
+    
+    // Christianity - Eastern Orthodox
+    if (lowerDenom.includes('orthodox')) {
+      return 'Use Eastern Orthodox prayer language. May reference icons, the Theotokos (Mother of God), and Orthodox theological concepts. Consider using "Lord have mercy" (Kyrie eleison).';
+    }
+    
+    // Christianity - Protestant (various)
+    if (lowerDenom.includes('protestant') || lowerDenom.includes('baptist') || 
+        lowerDenom.includes('lutheran') || lowerDenom.includes('methodist') || 
+        lowerDenom.includes('presbyterian')) {
+      return 'Use Protestant prayer language. Scripture-focused, emphasizing personal relationship with God. May reference Jesus directly. Use accessible, biblical language.';
+    }
+    
+    // Christianity - Anglican/Episcopal
+    if (lowerDenom.includes('anglican') || lowerDenom.includes('episcopal')) {
+      return 'Use Anglican prayer language. Blend traditional liturgical elements with accessible language. May draw from Book of Common Prayer style.';
+    }
+    
+    // Christianity - Pentecostal
+    if (lowerDenom.includes('pentecostal')) {
+      return 'Use Pentecostal prayer language. May be more expressive and emotional. Reference the Holy Spirit prominently. Use passionate, heartfelt language.';
+    }
+    
+    // Christianity - Latter-day Saints
+    if (lowerDenom.includes('latter-day') || lowerDenom.includes('mormon')) {
+      return 'Use LDS prayer language. Begin with "Heavenly Father" and close with "in the name of Jesus Christ." Use reverent, respectful tone.';
+    }
+    
+    // Christianity - Non-denominational
+    if (lowerDenom.includes('non-denominational')) {
+      return 'Use accessible, contemporary Christian language. Focus on personal relationship with God. Avoid denominational-specific terminology.';
+    }
+    
+    // Judaism
+    if (lowerDenom.includes('jewish') || lowerDenom.includes('judaism')) {
+      return 'Use Jewish prayer language. Reference Hashem, Adonai, or HaShem. May include Hebrew phrases like "Baruch Atah Adonai" (Blessed are You, Lord). Avoid Christian terminology entirely.';
+    }
+    
+    // Islam
+    if (lowerDenom.includes('islam') || lowerDenom.includes('muslim') || lowerDenom.includes('sunni') || lowerDenom.includes('shia')) {
+      return 'Use Islamic prayer language (dua style). Reference Allah. May include Arabic phrases like "Bismillah" (In the name of Allah) or "Alhamdulillah" (Praise be to Allah). Follow Islamic prayer conventions.';
+    }
+    
+    // Buddhism
+    if (lowerDenom.includes('buddhis')) {
+      return 'Use Buddhist prayer/chant language. Focus on mindfulness, compassion (metta), and enlightenment. May reference the dharma, sangha, or Buddha. Avoid theistic language.';
+    }
+    
+    // Hinduism
+    if (lowerDenom.includes('hindu')) {
+      return 'Use Hindu prayer language. May reference deities like Brahma, Vishnu, Shiva, or others. Can include mantras or references to dharma. Use respectful, devotional (bhakti) style.';
+    }
+    
+    // Sikhism
+    if (lowerDenom.includes('sikh')) {
+      return 'Use Sikh prayer language. Reference Waheguru (Wonderful Lord). May include phrases from Sikh scripture. Focus on unity with divine and service to humanity.';
+    }
+    
+    // Taoism
+    if (lowerDenom.includes('tao')) {
+      return 'Use Taoist prayer language. Focus on harmony, balance, and the Way (Tao). Use contemplative, nature-inspired language. Avoid aggressive or demanding tone.';
+    }
+    
+    // Bahá'í Faith
+    if (lowerDenom.includes('bahá')) {
+      return 'Use Bahá\'í prayer language. May reference God\'s attributes. Focus on unity, service, and spiritual growth. Use respectful, inclusive language.';
+    }
+    
+    // Unitarian Universalist
+    if (lowerDenom.includes('unitarian')) {
+      return 'Use Unitarian Universalist language. Highly inclusive, may avoid specific deity references. Focus on shared values, community, and personal spiritual journey.';
+    }
+    
+    // Spiritual but not religious
+    if (lowerDenom.includes('spiritual')) {
+      return 'Use spiritual but non-religious language. Focus on intention, mindfulness, and connection. Avoid specific religious terminology. Use universal, inclusive language.';
+    }
+    
+    // Atheist / None
+    if (lowerDenom.includes('atheist') || lowerDenom === 'none') {
+      return 'Use secular, reflective language. Focus on hope, intention, gratitude, and mindfulness without religious references. Frame as personal reflection or expression of values rather than prayer to a deity.';
+    }
+    
+    // Default for unspecified or "Other" denominations
+    return 'Use respectful, inclusive language appropriate for the user\'s spiritual tradition. Be sincere and heartfelt while remaining accessible.';
   }
   
   /**
@@ -247,10 +336,15 @@ Guidelines:
   }
   
   /**
-   * Generate a title for the prayer based on request
-   */
+ * Generate a title for the prayer based on request
+ */
   private static generateTitle(request: PrayerGenerationRequest): string {
     const type = request.prayerType.charAt(0).toUpperCase() + request.prayerType.slice(1);
+    
+    // Handle empty prayOnItItems (custom context only)
+    if (!request.prayOnItItems || request.prayOnItItems.length === 0) {
+      return `${type} Prayer`;  // Simple title when no specific people mentioned
+    }
     
     // If only one item, use its name
     if (request.prayOnItItems.length === 1) {
@@ -328,13 +422,6 @@ Guidelines:
     
     const currentCount = parseInt(countResult.rows[0].count) || 0;
     
-    console.log(`🔍 [AIService] AI Generation Check`);
-    console.log(`   User: ${userId}`);
-    console.log(`   Tier: ${tier}`);
-    console.log(`   Limit: ${config.limit === null ? 'unlimited' : config.limit} per ${config.period}`);
-    console.log(`   Current count (this ${config.period}): ${currentCount}`);
-    console.log(`   Time window start: ${timeWindowStart.toISOString()}`);
-    
     // Check if allowed
     const allowed = config.limit === null || currentCount < config.limit;
     
@@ -359,8 +446,6 @@ Guidelines:
         period: config.period
       };
     }
-    
-    console.log(`✅ [AIService] User can generate (${currentCount}/${config.limit === null ? 'unlimited' : config.limit} ${config.period})`);
     
     return {
       allowed: true,

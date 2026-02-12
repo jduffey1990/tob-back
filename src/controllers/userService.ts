@@ -15,7 +15,8 @@ function mapRowToUserSafe(row: any): UserSafe {
     status: row.status,
     subscriptionTier: row.subscription_tier,
     subscriptionExpiresAt: row.subscription_expires_at ?? null,
-    settings: row.settings ?? DEFAULT_USER_SETTINGS,  // NEW: Parse settings JSON
+    settings: row.settings ?? DEFAULT_USER_SETTINGS,
+    denomination: row.denomination,  // NEW: Include denomination
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -30,7 +31,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              settings, deleted_at, created_at, updated_at
+              settings, denomination, deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`
     );
@@ -44,7 +45,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              settings, deleted_at, created_at, updated_at
+              settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
@@ -53,6 +54,7 @@ export class UserService {
     return rows[0] ? mapRowToUserSafe(rows[0]) : null;
   }
 
+
   /**
    * Get one user by email (safe).
    */
@@ -60,7 +62,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              settings, deleted_at, created_at, updated_at
+              settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
         LIMIT 1`,
@@ -77,18 +79,20 @@ export class UserService {
     email: string;
     name: string;
     passwordHash: string;
-    status?: string; // optional override
+    denomination?: string;  // NEW: Optional denomination parameter
+    status?: string;        // optional override
   }): Promise<UserSafe> {
     const db = PostgresService.getInstance();
     const status = input.status ?? 'active';
-
+    const denomination = input.denomination ?? 'Christian';  // NEW: Default to 'Christian'
+    
     try {
       const { rows } = await db.query(
-        `INSERT INTO users (email, password_hash, name, status)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO users (email, password_hash, name, status, denomination)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                   settings, deleted_at, created_at, updated_at`,
-        [input.email, input.passwordHash, input.name, status]
+                   settings, denomination, deleted_at, created_at, updated_at`,
+        [input.email, input.passwordHash, input.name, status, denomination]
       );
       return mapRowToUserSafe(rows[0]);
     } catch (err: any) {
@@ -104,13 +108,14 @@ export class UserService {
    * Update user fields dynamically - only updates fields that are provided
    */
   public static async updateUser(
-    userId: string,
+    userId: string, 
     updates: Partial<{
-      name: string;
       email: string;
+      name: string;
       status: string;
       subscriptionTier: string;
       subscriptionExpiresAt: Date | null;
+      denomination: string;  // NEW: Allow denomination updates
     }>
   ): Promise<UserSafe> {
     const db = PostgresService.getInstance();
@@ -138,12 +143,13 @@ export class UserService {
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                settings, deleted_at, created_at, updated_at
+                settings, denomination, deleted_at, created_at, updated_at
     `;
     
     const { rows } = await db.query(query, values);
     
     if (!rows[0]) throw new Error('User not found');
+    
     return mapRowToUserSafe(rows[0]);
   }
 
@@ -166,26 +172,24 @@ export class UserService {
     
     // Validate playbackRate if provided
     if (settingsUpdate.playbackRate !== undefined) {
-      if (settingsUpdate.playbackRate < 0.0 || settingsUpdate.playbackRate > 1.0) {
-        throw new Error('playbackRate must be between 0.0 and 1.0');
+      if (settingsUpdate.playbackRate < 0 || settingsUpdate.playbackRate > 1) {
+        throw new Error('playbackRate must be between 0 and 1');
       }
     }
     
-    const query = `
-      UPDATE users
-      SET settings = settings || $1::jsonb,
-          updated_at = NOW()
-      WHERE id = $2::uuid AND deleted_at IS NULL
-      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                settings, deleted_at, created_at, updated_at
-    `;
-    
-    const { rows } = await db.query(query, [
-      JSON.stringify(settingsUpdate),
-      userId
-    ]);
+    // Use JSONB merge operator to update only provided fields
+    const { rows } = await db.query(
+      `UPDATE users
+       SET settings = settings || $1::jsonb,
+           updated_at = NOW()
+       WHERE id = $2::uuid
+       RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+                 settings, denomination, deleted_at, created_at, updated_at`,
+      [JSON.stringify(settingsUpdate), userId]
+    );
     
     if (!rows[0]) throw new Error('User not found');
+    
     return mapRowToUserSafe(rows[0]);
   }
 
@@ -198,7 +202,7 @@ export class UserService {
         WHERE id = $1::uuid
           AND status = 'inactive'
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                  settings, deleted_at, created_at, updated_at`,
+                  settings, denomination, deleted_at, created_at, updated_at`,
       [userId]
     );
 
@@ -252,7 +256,7 @@ static async getUserInfo(userId: string): Promise<{
           SET deleted_at = NOW()
         WHERE id = $1::uuid
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                  settings, deleted_at, created_at, updated_at`,
+                  settings, denomination, deleted_at, created_at, updated_at`,
       [userId]
     );
     if (!rows[0]) throw new Error('User not found');
@@ -332,7 +336,7 @@ static async getUserInfo(userId: string): Promise<{
           updated_at = NOW()
       WHERE id = $2::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                settings, deleted_at, created_at, updated_at`,
+                settings, denomination, deleted_at, created_at, updated_at`,
       [newPasswordHash, userId]
     );
     
@@ -360,7 +364,7 @@ static async getUserInfo(userId: string): Promise<{
             SET updated_at = NOW()
           WHERE id = $1::uuid
           RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
-                    settings, deleted_at, created_at, updated_at`,
+                    settings, denomination, deleted_at, created_at, updated_at`,
         [userId]
       );
 

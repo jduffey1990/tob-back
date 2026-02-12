@@ -24,7 +24,8 @@ export interface User {
   status: string;                 // 'active' | 'inactive'
   subscriptionTier: string;       // 'free' | 'pro' | 'lifetime'
   subscriptionExpiresAt?: Date | null; // null for free/lifetime, date for pro
-  settings: UserSettings;         // NEW: User preferences
+  settings: UserSettings;         // User preferences
+  denomination: string;           // NEW: Religious denomination/sect for AI prayer style
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

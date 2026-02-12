@@ -15,9 +15,9 @@ export class EmailService {
 
   constructor() {
     this.sesClient = new SESClient({ 
-      region: process.env.AWS_REGION || 'us-east-1' 
+      region: process.env.AWS_REGION || 'us-east-2' 
     });
-    this.fromEmail = process.env.FROM_EMAIL || 'noreply@foxdogdevelopment.com';
+    this.fromEmail = process.env.FROM_EMAIL || 'noreply@tobprayer.app';
   }
 
   /**

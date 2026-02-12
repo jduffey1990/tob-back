@@ -336,13 +336,20 @@ export const prayerRoutes: ServerRoute[] = [
         // Validate required fields
         if (!payload.prayerType || !payload.tone || !payload.length ) {
           return h.response({ 
-            error: 'Missing one of required fields: prayerType, tone, length, expansiveness' 
+            error: 'Missing one of required fields: prayerType, tone, length' 
           }).code(400);
         }
         
-        if (!payload.prayOnItItems || payload.prayOnItItems.length === 0) {
-          return h.response({ 
-            error: 'At least one Pray On It item is required' 
+        const hasPrayOnItItems =
+          Array.isArray(payload.prayOnItItems) && payload.prayOnItItems.length > 0;
+
+        const hasCustomContext =
+          typeof payload.customContext === 'string' &&
+          payload.customContext.trim().length > 0;
+
+        if (!hasPrayOnItItems && !hasCustomContext) {
+          return h.response({
+            error: 'Please add at least one Pray On It item or provide custom context.'
           }).code(400);
         }
         

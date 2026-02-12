@@ -699,8 +699,8 @@ AWS_SECRET_ACCESS_KEY=...
 S3_AUDIO_BUCKET=tob-audio-files-dev
 
 # Email
-FROM_EMAIL=noreply@towerofbabble.app
-APP_URL=https://app.towerofbabble.com
+FROM_EMAIL=noreply@tobprayer.app
+APP_URL=https://tobprayer.app
 
 # Server
 PORT=3004

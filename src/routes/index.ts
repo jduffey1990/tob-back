@@ -8,7 +8,7 @@ import { ttsRoutes } from './ttsRoutes';
 import { redisRoutes } from './redisRoutes'
 import { audioRoutes } from './audioRoutes';
 import { passwordResetRoutes } from './passwordResetRoutes';
-
+import { denominationRoutes } from './denominationRoutes';
 
 export default [
   ...userRoutes,
@@ -20,5 +20,6 @@ export default [
   ...ttsRoutes,
   ...redisRoutes,
   ...audioRoutes,
-  ...passwordResetRoutes
+  ...passwordResetRoutes,
+  ...denominationRoutes
 ];
