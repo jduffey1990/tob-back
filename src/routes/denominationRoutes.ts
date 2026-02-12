@@ -7,6 +7,7 @@ import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
  */
 const DENOMINATIONS = [
   // Christianity
+  'Christian',
   'Roman Catholic',
   'Eastern Orthodox',
   'Anglican/Episcopal',

@@ -79,12 +79,15 @@ export class UserService {
     email: string;
     name: string;
     passwordHash: string;
-    denomination?: string;  // NEW: Optional denomination parameter
+    denomination: string;  // NEW: Optional denomination parameter
     status?: string;        // optional override
   }): Promise<UserSafe> {
     const db = PostgresService.getInstance();
     const status = input.status ?? 'active';
     const denomination = input.denomination ?? 'Christian';  // NEW: Default to 'Christian'
+
+    console.log("input", input)
+    console.log("denomination: ", denomination)
     
     try {
       const { rows } = await db.query(

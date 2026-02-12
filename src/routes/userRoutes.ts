@@ -190,6 +190,7 @@ export const userRoutes : ServerRoute[] = [
         
         // Hash password (8 rounds is fine for bcrypt)
         const passwordHash = await bcrypt.hash(payload.password, 8);
+        const denomination = payload.denomination?.toString().trim() || 'Christian';
         
         // Create user
         // Note: subscriptionTier defaults to 'free' in DB
@@ -199,7 +200,8 @@ export const userRoutes : ServerRoute[] = [
           email: payload.email.toLowerCase(),
           name,
           passwordHash,
-          status: "inactive"
+          status: "inactive",
+          denomination
         });
         
         // Create activation token

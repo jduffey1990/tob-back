@@ -1,4 +1,4 @@
-// src/controllers/aiService.ts (REVISED - Daily Limits for Prayer Warrior + Denomination Support)
+// src/controllers/aiService.ts (REVISED - Daily Limits for Prayer Warrior + Denomination Support + Instruction Ranking)
 import OpenAI from 'openai';
 import {
   AIGeneration,
@@ -28,7 +28,11 @@ export class AIService {
     
     // NEW: Fetch user to get denomination
     const user = await UserService.findUserById(userId);
-    const denomination = user?.denomination || 'Christian';  // Fallback to Christian if not found
+    const userDenomination = user?.denomination || 'Christian';  // Fallback to Christian if not found
+    
+    // NEW: Detect denomination override from customContext
+    const denominationOverride = this.detectDenominationOverride(request.customContext);
+    const effectiveDenomination = denominationOverride || userDenomination;
     
     // 1. Check if user can generate (within tier limits)
     const canGenerate = await this.checkCanGenerate(userId);
@@ -46,9 +50,9 @@ export class AIService {
     const generationId = generationResult.rows[0].id;
     
     try {
-      // 3. Call OpenAI with denomination
+      // 3. Call OpenAI with effective denomination (might be overridden)
       const startTime = Date.now();
-      const openAIResponse = await this.callOpenAI(request, denomination);  // NEW: Pass denomination
+      const openAIResponse = await this.callOpenAI(request, effectiveDenomination, denominationOverride !== null);
       const responseTime = Date.now() - startTime;
       
       // 4. Generate title for the prayer
@@ -110,14 +114,73 @@ export class AIService {
   }
   
   /**
+   * NEW: Detect if user's customContext requests a different denomination
+   * Returns the denomination string if detected, null otherwise
+   */
+  private static detectDenominationOverride(customContext?: string | null): string | null {
+    if (!customContext) return null;
+    
+    const lowerContext = customContext.toLowerCase();
+    
+    // Map of detection patterns to denomination names
+    const denominationPatterns: Array<{ pattern: RegExp; denomination: string }> = [
+      // Christianity - specific denominations
+      { pattern: /\b(catholic|roman catholic)\b/i, denomination: 'Roman Catholic' },
+      { pattern: /\b(orthodox|eastern orthodox)\b/i, denomination: 'Eastern Orthodox' },
+      { pattern: /\b(anglican|episcopal)\b/i, denomination: 'Anglican/Episcopal' },
+      { pattern: /\b(baptist)\b/i, denomination: 'Baptist' },
+      { pattern: /\b(lutheran)\b/i, denomination: 'Lutheran' },
+      { pattern: /\b(methodist)\b/i, denomination: 'Methodist' },
+      { pattern: /\b(presbyterian)\b/i, denomination: 'Presbyterian' },
+      { pattern: /\b(pentecostal)\b/i, denomination: 'Pentecostal' },
+      { pattern: /\b(mormon|latter-day saints?|lds)\b/i, denomination: 'Latter-day Saints (Mormon)' },
+      
+      // Generic Christian
+      { pattern: /\b(christian|christianity)\b/i, denomination: 'Christian' },
+      
+      // Judaism
+      { pattern: /\b(jewish|judaism|hebrew)\b/i, denomination: 'Orthodox Judaism' },
+      
+      // Islam
+      { pattern: /\b(islam|muslim|islamic)\b/i, denomination: 'Sunni Islam' },
+      
+      // Buddhism
+      { pattern: /\b(buddhist|buddhism)\b/i, denomination: 'Buddhism - Mahayana' },
+      
+      // Hinduism
+      { pattern: /\b(hindu|hinduism)\b/i, denomination: 'Hinduism' },
+      
+      // Other religions
+      { pattern: /\b(sikh|sikhism)\b/i, denomination: 'Sikhism' },
+      { pattern: /\b(tao|taoist|taoism)\b/i, denomination: 'Taoism' },
+    ];
+    
+    // Check each pattern
+    for (const { pattern, denomination } of denominationPatterns) {
+      if (pattern.test(lowerContext)) {
+        console.log(`📋 [AIService] Detected denomination override in context: ${denomination}`);
+        return denomination;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
    * Call OpenAI API with the prayer generation request
    */
   private static async callOpenAI(
     request: PrayerGenerationRequest,
-    denomination: string  // NEW: Accept denomination
+    denomination: string,  // NEW: Accept denomination
+    isDenominationOverride: boolean = false  // NEW: Flag if this is an override
   ): Promise<OpenAIResponse> {
     
-    const systemPrompt = this.buildSystemPrompt(request.prayerType, request.tone, denomination);  // NEW: Pass denomination
+    const systemPrompt = this.buildSystemPrompt(
+      request.prayerType, 
+      request.tone, 
+      denomination,
+      isDenominationOverride
+    );
     const userPrompt = this.buildUserPrompt(request);
     const maxTokens = this.getMaxTokensForLength(request.length);
     
@@ -144,70 +207,96 @@ export class AIService {
   
   /**
    * Build system prompt based on prayer type, tone, and denomination
+   * NEW: Includes instruction ranking/priority system
    */
   private static buildSystemPrompt(
     prayerType: string, 
     tone: string,
-    denomination: string  // NEW: Accept denomination
+    denomination: string,
+    isDenominationOverride: boolean = false
   ): string {
     
-    // NEW: Base prompt now includes denomination
-    const basePrompt = `You are a compassionate prayer writer helping someone create a heartfelt, sincere prayer. 
-Generate a prayer in the style and tradition of ${denomination}. ${this.getDenominationGuidance(denomination)}
-
-Add punctuation that is grammatically correct, but also keep in mind that we will be using Text-To-Speech functionality. So please optimize the prayer writing for that also.`;
+    // NEW: Instruction Priority/Ranking System
+    const priorityRules = `
+      INSTRUCTION PRIORITY HIERARCHY (Highest → Lowest):
+      1. HARD CONSTRAINTS: You must NEVER exceed the token limit. This is non-negotiable.
+      2. USER CONTEXT: If the user's additional context contradicts their profile denomination or settings, honor their context.
+      3. USER SETTINGS: Respect the prayer type, tone, and length settings.
+      ${isDenominationOverride ? '4. User requested different tradition - honor it' : ''}`;
     
+    // Base prompt now includes denomination and priority rules
+    const basePrompt = `You are a prayer writer. Generate in ${denomination} style. ${this.getDenominationGuidance(denomination)}
+
+    ${priorityRules}
+
+    Use clear punctuation optimized for Text-To-Speech.`;
+  
     // Prayer type instructions
     const typeInstructions: Record<string, string> = {
-      gratitude: 'Focus on thanksgiving and appreciation. Express genuine gratitude for blessings received.',
-      intercession: 'Pray on behalf of others. Ask for God\'s intervention, healing, and blessing in their lives.',
-      petition: 'Present personal needs and requests to God with humility and trust.',
+      gratitude: 'Focus on giving thanks and appreciation.',
+      intercession: `Pray on behalf of others. Ask for ${denomination}'s supreme being in their lives.`,
+      petition: `Present personal needs and requests to ${denomination}'s supreme being with humility and trust.`,
       confession: 'Approach with humility and repentance. Acknowledge shortcomings and seek forgiveness.',
-      praise: 'Magnify God\'s character, glory, and goodness. Focus on worship and adoration.'
+      praise: `Magnify ${denomination}'s supreme being's character, glory, and goodness. Focus on worship and adoration.`
     };
     
     // Tone instructions
     const toneInstructions: Record<string, string> = {
-      formal: 'Use traditional, reverent language. Include phrases like "Almighty God," "we beseech thee." Use elevated, liturgical style.',
-      conversational: 'Write as if talking to a close friend. Use natural, everyday language. Be warm and personal.',
-      contemplative: 'Use reflective, meditative language. Create space for quiet reflection. Be thoughtful and introspective.',
+      formal: 'Use traditional, reverent language. Use elevated, liturgical style.',
+      conversational: 'Write as if talking to a close friend. Be warm and personal.',
+      contemplative: 'Use reflective, meditative language. Be thoughtful and introspective.',
       joyful: 'Express celebration and happiness. Use uplifting, enthusiastic language. Convey hope and joy.'
     };
     
     return `${basePrompt}
 
-Prayer Type: ${typeInstructions[prayerType] || 'Create a sincere prayer.'}
+    Prayer Type: ${typeInstructions[prayerType] || 'Create a sincere prayer.'}
 
-Tone: ${toneInstructions[tone] || 'Use sincere, heartfelt language.'}
+    Tone: ${toneInstructions[tone] || 'Use sincere, heartfelt language.'}
 
-Guidelines:
-- Reflect the theological and liturgical style of ${denomination}
-- Additional context from the user overwrites anything except for token use guidelines.
-- Include the specific people and situations mentioned
-- Follow traditional prayer structure: Opening address → Body (main content) → Closing
-- End with "Amen" or appropriate closing for ${denomination}`;
+    Guidelines:
+    - Use ${denomination} theological/liturgical style
+    - Include all people/situations mentioned
+    - Structure: Opening → Body → Closing
+    - End with appropriate closing for ${denomination}`;
   }
   
   /**
    * NEW: Get denomination-specific guidance for prayer generation
+   * UPDATED: Now includes AI adaptation fallback for unknown denominations
    */
   private static getDenominationGuidance(denomination: string): string {
     const lowerDenom = denomination.toLowerCase();
     
     // Christianity - Catholic
-    if (lowerDenom.includes('catholic')) {
+    if (lowerDenom === 'roman catholic' || lowerDenom === 'catholic') {
       return 'Use traditional Catholic prayer language. May reference saints, Mary, or the Trinity. Consider formal liturgical structure. May include phrases like "Holy Mother" or "Blessed Virgin."';
     }
     
     // Christianity - Eastern Orthodox
-    if (lowerDenom.includes('orthodox')) {
+    if (lowerDenom === 'eastern orthodox' || lowerDenom.includes('orthodox') && !lowerDenom.includes('jewish')) {
       return 'Use Eastern Orthodox prayer language. May reference icons, the Theotokos (Mother of God), and Orthodox theological concepts. Consider using "Lord have mercy" (Kyrie eleison).';
     }
     
-    // Christianity - Protestant (various)
-    if (lowerDenom.includes('protestant') || lowerDenom.includes('baptist') || 
-        lowerDenom.includes('lutheran') || lowerDenom.includes('methodist') || 
-        lowerDenom.includes('presbyterian')) {
+    // Christianity - Protestant (various) - exact matches first
+    if (lowerDenom === 'baptist') {
+      return 'Use Baptist prayer language. Scripture-focused, emphasizing personal relationship with God and believer\'s baptism. Direct, accessible language.';
+    }
+    
+    if (lowerDenom === 'lutheran') {
+      return 'Use Lutheran prayer language. Emphasize grace, scripture, and sacraments. May draw from Lutheran liturgical traditions.';
+    }
+    
+    if (lowerDenom === 'methodist') {
+      return 'Use Methodist prayer language. Focus on personal holiness, social justice, and God\'s grace. Warm, accessible style.';
+    }
+    
+    if (lowerDenom === 'presbyterian') {
+      return 'Use Presbyterian prayer language. Emphasize God\'s sovereignty and Reformed theology. Thoughtful, structured approach.';
+    }
+    
+    // Broader Protestant match
+    if (lowerDenom.includes('protestant')) {
       return 'Use Protestant prayer language. Scripture-focused, emphasizing personal relationship with God. May reference Jesus directly. Use accessible, biblical language.';
     }
     
@@ -229,6 +318,11 @@ Guidelines:
     // Christianity - Non-denominational
     if (lowerDenom.includes('non-denominational')) {
       return 'Use accessible, contemporary Christian language. Focus on personal relationship with God. Avoid denominational-specific terminology.';
+    }
+    
+    // Generic Christian fallback
+    if (lowerDenom === 'christian' || lowerDenom.includes('christian')) {
+      return 'Use general Christian prayer language. Scripture-based, accessible, and heartfelt. Focus on relationship with God through Jesus Christ.';
     }
     
     // Judaism
@@ -281,8 +375,8 @@ Guidelines:
       return 'Use secular, reflective language. Focus on hope, intention, gratitude, and mindfulness without religious references. Frame as personal reflection or expression of values rather than prayer to a deity.';
     }
     
-    // Default for unspecified or "Other" denominations
-    return 'Use respectful, inclusive language appropriate for the user\'s spiritual tradition. Be sincere and heartfelt while remaining accessible.';
+    // NEW: AI adaptation fallback for unknown/custom denominations
+    return `The user identifies as "${denomination}". Research and adapt to this spiritual tradition's authentic prayer style and language. Use respectful, sincere language appropriate for their beliefs. If uncertain, default to universal, inclusive, heartfelt language.`;
   }
   
   /**
