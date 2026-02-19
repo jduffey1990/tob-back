@@ -8,6 +8,7 @@ import { AuthService } from './controllers/authService'
 import { PostgresService } from './controllers/postgres.service'
 import { S3Service } from './controllers/s3.service'
 import { UserService } from './controllers/userService'
+import { StatsService } from './controllers/statsService';
 import { audioRoutes } from './routes/audioRoutes'
 import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { passwordResetRoutes } from './routes/passwordResetRoutes'
@@ -147,6 +148,14 @@ async function startLocal() {
 
 // ---------- Lambda entry ----------
 export const handler = async (event: any, context: any) => {
+  // Handle EventBridge warm-up ping (every 5 minutes)
+  if (event.action === 'warmup') {
+    console.log('🔥 Warm-up ping received');
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ status: 'warm' })
+    };
+  }
   // Handle EventBridge scheduled cleanup event
   if (event.action === 'cleanup_deleted_data') {
     console.log('🗑️  Running scheduled data cleanup...');
@@ -163,6 +172,36 @@ export const handler = async (event: any, context: any) => {
       };
     } catch (error: any) {
       console.error('❌ Cleanup failed:', error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          error: error.message
+        })
+      };
+    }
+  }
+
+  if (event.action === 'send_daily_stats') {
+    console.log('📊 Running daily stats digest...');
+    try {
+      const stats = await StatsService.gatherAndSendDailyStats();
+      console.log(`✅ Daily stats sent. Total users: ${stats.users.totalUsers}`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          message: 'Daily stats email sent',
+          summary: {
+            totalUsers: stats.users.totalUsers,
+            newUsers24h: stats.users.newUsersLast24h,
+            totalPrayers: stats.content.totalPrayers,
+            aiGenerations24h: stats.ai.generationsLast24h,
+          }
+        })
+      };
+    } catch (error: any) {
+      console.error('❌ Daily stats failed:', error);
       return {
         statusCode: 500,
         body: JSON.stringify({

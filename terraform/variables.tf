@@ -167,3 +167,9 @@ variable "s3_audio_bucket" {
   type        = string
   default     = "tob-audio-files"
 }
+
+variable "admin_stats_email" {
+  description = "Email address to receive daily stats digest"
+  type        = string
+  sensitive   = true
+}

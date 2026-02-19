@@ -71,6 +71,9 @@ resource "aws_lambda_function" "main" {
 
       # Data Cleanup Security
       CLEANUP_API_KEY = var.cleanup_api_key
+
+      # Admin Stats
+      ADMIN_STATS_EMAIL = var.admin_stats_email
     }
   }
   
@@ -355,5 +358,72 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   function_name = aws_lambda_function.main.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.data_cleanup_schedule.arn
+}
+
+# ============================================
+# EVENTBRIDGE - LAMBDA WARM-UP (every 5 min)
+# ============================================
+
+# Keeps Lambda container warm to eliminate cold starts
+# Cost: ~8,640 invocations/month = pennies
+resource "aws_cloudwatch_event_rule" "warmup_schedule" {
+  name                = "${var.service_name}-warmup"
+  description         = "Ping Lambda every 5 minutes to prevent cold starts"
+  schedule_expression = "rate(5 minutes)"
+  
+  tags = merge(local.common_tags, {
+    Type = "eventbridge-rule"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "warmup_lambda" {
+  rule      = aws_cloudwatch_event_rule.warmup_schedule.name
+  target_id = "WarmupLambdaTarget"
+  arn       = aws_lambda_function.main.arn
+  
+  input = jsonencode({
+    action = "warmup"
+  })
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_warmup" {
+  statement_id  = "AllowExecutionFromEventBridgeWarmup"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.main.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.warmup_schedule.arn
+}
+
+# ============================================
+# EVENTBRIDGE - DAILY STATS EMAIL
+# ============================================
+
+# EventBridge rule to send daily stats at 1 PM UTC (~7 AM Mountain)
+resource "aws_cloudwatch_event_rule" "daily_stats_schedule" {
+  name                = "${var.service_name}-daily-stats"
+  description         = "Send daily stats digest email"
+  schedule_expression = "cron(0 13 * * ? *)"  # 1 PM UTC = ~7 AM MT
+  
+  tags = merge(local.common_tags, {
+    Type = "eventbridge-rule"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "stats_lambda" {
+  rule      = aws_cloudwatch_event_rule.daily_stats_schedule.name
+  target_id = "DailyStatsLambdaTarget"
+  arn       = aws_lambda_function.main.arn
+  
+  input = jsonencode({
+    action = "send_daily_stats"
+  })
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_stats" {
+  statement_id  = "AllowExecutionFromEventBridgeStats"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.main.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.daily_stats_schedule.arn
 }
 
