@@ -35,6 +35,7 @@ describe('UserService', () => {
           deleted_at: null,
           created_at: new Date('2024-01-01'),
           updated_at: new Date('2024-01-01'),
+          denomination: 'Christian'
         },
         {
           id: '123e4567-e89b-12d3-a456-426614174002',
@@ -46,6 +47,7 @@ describe('UserService', () => {
           deleted_at: null,
           created_at: new Date('2024-01-02'),
           updated_at: new Date('2024-01-02'),
+          denomination: 'Christian'
         },
       ];
 
@@ -67,6 +69,7 @@ describe('UserService', () => {
         deletedAt: null,
         createdAt: mockRows[0].created_at,
         updatedAt: mockRows[0].updated_at,
+        denomination: 'Christian'
       });
       expect(result[1].subscriptionTier).toBe('pro');
       expect(result[1].subscriptionExpiresAt).toEqual(new Date('2026-12-31'));
@@ -93,6 +96,7 @@ describe('UserService', () => {
         deleted_at: null,
         created_at: new Date('2024-01-01'),
         updated_at: new Date('2024-01-01'),
+        denomination: 'Christian'
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -113,6 +117,7 @@ describe('UserService', () => {
         deletedAt: null,
         createdAt: mockRow.created_at,
         updatedAt: mockRow.updated_at,
+        denomination: 'Christian'
       });
     });
 
@@ -146,6 +151,7 @@ describe('UserService', () => {
         name: 'New User',
         passwordHash: 'hashed_password_123',
         status: 'active',
+        denomination: 'Christian'
       });
 
       expect(mockDb.query).toHaveBeenCalledWith(
@@ -168,6 +174,7 @@ describe('UserService', () => {
         deleted_at: null,
         created_at: new Date('2024-01-01'),
         updated_at: new Date('2024-01-01'),
+        denomination: 'Christian'
       };
 
       mockDb.query.mockResolvedValue({ rows: [mockRow] });
@@ -176,6 +183,7 @@ describe('UserService', () => {
         email: 'newuser@example.com',
         name: 'New User',
         passwordHash: 'hashed_password_123',
+        denomination: 'Christian'
       });
 
       expect(mockDb.query).toHaveBeenCalledWith(
@@ -196,6 +204,7 @@ describe('UserService', () => {
           email: 'duplicate@example.com',
           name: 'Duplicate User',
           passwordHash: 'hashed_password_123',
+          denomination: 'Christian'
         })
       ).rejects.toThrow('duplicate key value violates unique constraint');
     });
@@ -209,6 +218,7 @@ describe('UserService', () => {
           email: 'user@example.com',
           name: 'User',
           passwordHash: 'hashed_password_123',
+          denomination: 'Christian'
         })
       ).rejects.toThrow('Database connection failed');
     });
