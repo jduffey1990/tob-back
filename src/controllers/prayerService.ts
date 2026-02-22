@@ -1,6 +1,7 @@
 // src/controllers/prayerService.ts
 import { CreatePrayerInput, Prayer, UpdatePrayerInput } from '../models/prayer';
 import { PostgresService } from './postgres.service';
+import { NotFoundError } from '../errors';
 
 // Map db row -> Prayer (snake_case -> camelCase)
 function mapRowToPrayer(row: any): Prayer {
@@ -117,7 +118,7 @@ export class PrayerService {
     
     const { rows } = await db.query(query, values);
     
-    if (!rows[0]) throw new Error('Prayer not found or unauthorized');
+    if (!rows[0]) throw new NotFoundError('Prayer');
     return mapRowToPrayer(rows[0]);
   }
 
@@ -135,7 +136,7 @@ export class PrayerService {
     );
     
     if (rowCount === 0) {
-      throw new Error('Prayer not found');
+      throw new NotFoundError('Prayer');
     }
   }
 
@@ -159,7 +160,7 @@ export class PrayerService {
       [prayerId, userId]
     );
     
-    if (!rows[0]) throw new Error('Prayer not found');
+    if (!rows[0]) throw new NotFoundError('Prayer');
     return mapRowToPrayer(rows[0]);
   }
 

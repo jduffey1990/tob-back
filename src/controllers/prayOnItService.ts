@@ -5,6 +5,7 @@ import {
   CreatePrayOnItItemInput, 
   UpdatePrayOnItItemInput 
 } from '../models/prayOnItItem';
+import { NotFoundError, ValidationError } from '../errors';
 
 // Map db row -> PrayOnItItem (snake_case -> camelCase)
 function mapRowToPrayOnItItem(row: any): PrayOnItItem {
@@ -109,7 +110,7 @@ export class PrayOnItService {
     // First verify ownership
     const existing = await this.findItemById(itemId, userId);
     if (!existing) {
-      throw new Error('Pray On It item not found or unauthorized');
+      throw new NotFoundError('Pray on it');
     }
     
     // Build dynamic update query
@@ -139,7 +140,8 @@ export class PrayOnItService {
     }
     
     if (fields.length === 0) {
-      throw new Error('No fields to update');
+      throw new ValidationError('At least one field to update is required');
+
     }
     
     values.push(itemId, userId);
@@ -175,7 +177,7 @@ export class PrayOnItService {
     );
     
     if (rowCount === 0) {
-      throw new Error('Pray On It item not found');
+      throw new NotFoundError('Pray on it');
     }
   }
 }

@@ -2,6 +2,7 @@
 import { PostgresService } from './postgres.service';
 import { User, UserSettings, DEFAULT_USER_SETTINGS } from '../models/user';
 import { S3Service } from './s3.service'
+import {ConflictError, ValidationError, NotFoundError} from '../errors/AppErrors'
 
 // Expose a "safe" user for reads (no passwordHash)
 export type UserSafe = Omit<User, 'passwordHash'>;
@@ -85,9 +86,6 @@ export class UserService {
     const db = PostgresService.getInstance();
     const status = input.status ?? 'active';
     const denomination = input.denomination ?? 'Christian';  // NEW: Default to 'Christian'
-
-    console.log("input", input)
-    console.log("denomination: ", denomination)
     
     try {
       const { rows } = await db.query(
@@ -101,7 +99,7 @@ export class UserService {
     } catch (err: any) {
       if (err?.code === '23505') {
         // Keeps your frontend logic unchanged
-        throw new Error('duplicate key value violates unique constraint');
+        throw new ConflictError('An account with this email already exists');
       }
       throw err;
     }
@@ -127,7 +125,7 @@ export class UserService {
     const fields = Object.entries(updates).filter(([_, value]) => value !== undefined);
     
     if (fields.length === 0) {
-      throw new Error('No fields to update');
+      throw new ValidationError('At least one field to update is required');
     }
     
     // Build dynamic SET clause
@@ -151,7 +149,7 @@ export class UserService {
     
     const { rows } = await db.query(query, values);
     
-    if (!rows[0]) throw new Error('User not found');
+    if (!rows[0]) throw new NotFoundError('User');
     
     return mapRowToUserSafe(rows[0]);
   }
@@ -169,14 +167,14 @@ export class UserService {
     // Validate voiceIndex if provided
     if (settingsUpdate.voiceIndex !== undefined) {
       if (settingsUpdate.voiceIndex < 0 || settingsUpdate.voiceIndex > 8) {
-        throw new Error('voiceIndex must be between 0 and 8');
+        throw new ValidationError('voiceIndex must be between 0 and 8');
       }
     }
     
     // Validate playbackRate if provided
     if (settingsUpdate.playbackRate !== undefined) {
       if (settingsUpdate.playbackRate < 0 || settingsUpdate.playbackRate > 1) {
-        throw new Error('playbackRate must be between 0 and 1');
+        throw new ValidationError('playbackRate must be between 0 and 1');
       }
     }
     
@@ -191,7 +189,7 @@ export class UserService {
       [JSON.stringify(settingsUpdate), userId]
     );
     
-    if (!rows[0]) throw new Error('User not found');
+    if (!rows[0]) throw new NotFoundError('User');
     
     return mapRowToUserSafe(rows[0]);
   }
@@ -236,7 +234,7 @@ static async getUserInfo(userId: string): Promise<{
   );
   
   if (result.rows.length === 0) {
-    throw new Error('User not found');
+    throw new NotFoundError('User');
   }
   
   const row = result.rows[0];
@@ -262,7 +260,7 @@ static async getUserInfo(userId: string): Promise<{
                   settings, denomination, deleted_at, created_at, updated_at`,
       [userId]
     );
-    if (!rows[0]) throw new Error('User not found');
+    if (!rows[0]) throw new NotFoundError('User');
     return mapRowToUserSafe(rows[0]);
   }
 
@@ -320,7 +318,7 @@ static async getUserInfo(userId: string): Promise<{
       [userId]
     );
     
-    if (rowCount === 0) throw new Error('User not found');
+    if (rowCount === 0) throw new NotFoundError('User');
     // No return needed since row is gone
   }
 
@@ -343,7 +341,7 @@ static async getUserInfo(userId: string): Promise<{
       [newPasswordHash, userId]
     );
     
-    if (!rows[0]) throw new Error('User not found');
+    if (!rows[0]) throw new NotFoundError('User');
     return mapRowToUserSafe(rows[0]);
   }
 
@@ -371,7 +369,7 @@ static async getUserInfo(userId: string): Promise<{
         [userId]
       );
 
-      if (!rows[0]) throw new Error('User not found');
+      if (!rows[0]) throw new NotFoundError('User');
       return mapRowToUserSafe(rows[0]);
     });
   }

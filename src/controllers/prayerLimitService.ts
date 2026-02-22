@@ -1,5 +1,6 @@
 // src/controllers/prayerLimitService.ts
 import { PostgresService } from './postgres.service';
+import { LimitReachedError, NotFoundError } from '../errors';
 
 export interface SubscriptionInfo {
   tier: 'free' | 'pro' | 'prayer_warrior' | 'lifetime';
@@ -48,14 +49,10 @@ export class PrayerLimitService {
     );
 
     if (userRows.length === 0) {
-      throw new Error('User not found');
+      throw new NotFoundError('User');
     }
 
     const { subscription_tier, subscription_expires_at } = userRows[0];
-    
-    console.log(`📊 [PrayerLimitService] User ${userId}`);
-    console.log(`   Tier from DB: "${subscription_tier}" (type: ${typeof subscription_tier})`);
-    console.log(`   Expires at: ${subscription_expires_at}`);
 
     // Count user's active (non-deleted) prayers
     const { rows: prayerRows } = await db.query(
@@ -83,18 +80,11 @@ export class PrayerLimitService {
     // Get limit for effective tier
     const prayerLimit = this.getTierLimit(effectiveTier);
     
-    console.log(`   Effective tier: "${effectiveTier}"`);
-    console.log(`   Prayer count: ${prayerCount}`);
-    console.log(`   Prayer limit: ${prayerLimit === null ? 'unlimited' : prayerLimit}`);
-    
     // Calculate if user can create more prayers
     const canCreatePrayer = prayerLimit === null || prayerCount < prayerLimit;
     const remainingPrayers = prayerLimit === null 
       ? null 
       : Math.max(0, prayerLimit - prayerCount);
-
-    console.log(`   Can create: ${canCreatePrayer}`);
-    console.log(`   Remaining: ${remainingPrayers === null ? 'unlimited' : remainingPrayers}`);
 
     return {
       tier: subscription_tier,
@@ -120,15 +110,15 @@ export class PrayerLimitService {
           'Your Pro subscription has expired. Please renew to continue creating prayers, or delete existing prayers to stay within the free tier limit.'
         );
       } else if (info.tier === 'free') {
-        throw new Error(
+        throw new LimitReachedError(
           `Free tier is limited to ${this.TIER_LIMITS.free} prayers. You currently have ${info.prayerCount}. Upgrade to Pro for ${this.TIER_LIMITS.pro} prayers!`
         );
       } else if (info.tier === 'pro') {
-        throw new Error(
+        throw new LimitReachedError(
           `Pro tier is limited to ${this.TIER_LIMITS.pro} prayers. You currently have ${info.prayerCount}. Upgrade to Prayer Warrior for ${this.TIER_LIMITS.prayer_warrior} prayers!`
         );
       } else if (info.tier === 'prayer_warrior') {
-        throw new Error(
+        throw new LimitReachedError(
           `Prayer Warrior tier is limited to ${this.TIER_LIMITS.prayer_warrior} prayers. You currently have ${info.prayerCount}. Upgrade to Lifetime for unlimited prayers!`
         );
       } else {

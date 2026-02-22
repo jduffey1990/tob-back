@@ -11,6 +11,7 @@
 // TODO v2: Add full Apple public key signature verification via JWKS
 
 import { PostgresService } from './postgres.service';
+import { ValidationError} from '../errors';
 
 // ============================================================
 // Product ID → Tier mapping
@@ -41,7 +42,7 @@ export class AppleSubscriptionService {
   static decodeJWSPayload(jws: string): any {
     const parts = jws.split('.');
     if (parts.length !== 3) {
-      throw new Error(`Invalid JWS format: expected 3 parts, got ${parts.length}`);
+      throw new ValidationError(`Invalid JWS format: expected 3 parts, got ${parts.length}`);
     }
     const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const json = Buffer.from(base64, 'base64').toString('utf8');
@@ -209,7 +210,7 @@ export class AppleSubscriptionService {
 
     const tier = this.getTierFromProductId(productId);
     if (!tier) {
-      throw new Error(`Unknown productId: ${productId}`);
+      throw new ValidationError(`Unknown productId: ${productId}`);
     }
 
     const expiresAt = expiresDate ? new Date(Number(expiresDate)) : null;

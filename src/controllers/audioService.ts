@@ -6,6 +6,7 @@ import { PostgresService } from './postgres.service';
 import { redisService } from './redis.service';
 import { S3Service } from './s3.service';
 import { TTSService } from './ttsService';
+import { AppError, ConflictError, ExternalServiceError } from '../errors/AppErrors';
 
 export class AudioService {
   
@@ -26,16 +27,11 @@ export class AudioService {
     voiceId: string
   ): Promise<AudioStateResponse> {
     
-    console.log(`🔍 [AudioService] Checking state: prayer=${prayerId}, voice=${voiceId}`);
-    
     // 1️⃣ Check Redis first - is it currently building?
     const isBuilding = await redisService.isBuilding(prayerId, voiceId);
-
-    console.log(`Redis isBuildng = ${isBuilding}`)
     
     if (isBuilding) {
       const ttl = await redisService.getBuildingTTL(prayerId, voiceId);
-      console.log(`   ⏳ BUILDING (${ttl}s remaining)`);
       
       return {
         state: AudioState.BUILDING
@@ -53,11 +49,7 @@ export class AudioService {
     );
     
     if (result.rows.length > 0) {
-      console.log("prayer audio found")
       const audioFile = rowToAudioFile(result.rows[0]);
-      
-      console.log(`   ✅ READY`);
-      console.log(`      URL: ${audioFile.s3Url}`);
       
       return {
         state: AudioState.READY,
@@ -66,8 +58,6 @@ export class AudioService {
         duration: audioFile.durationSeconds
       };
     }
-
-    console.log("prayer audio not found")
     
     // 3️⃣ Doesn't exist and not building
     return {
@@ -145,12 +135,7 @@ export class AudioService {
         data.provider
       ]
     );
-    
-    console.log(`✅ [AudioService] Saved audio file to database`);
-    console.log(`   Prayer: ${data.prayerId}`);
-    console.log(`   Voice: ${data.voiceId}`);
-    console.log(`   URL: ${data.s3Url}`);
-    
+ 
     return rowToAudioFile(result.rows[0]);
   }
   
@@ -176,8 +161,6 @@ export class AudioService {
       'DELETE FROM audio_files WHERE prayer_id = $1',
       [prayerId]
     );
-    
-    console.log(`🗑️ [AudioService] Deleted ${deleteResult.rowCount} audio files for prayer ${prayerId}`);
     
     return deleteResult.rowCount || 0;
   }
@@ -206,99 +189,48 @@ export class AudioService {
   ): Promise<void> {
     
     const startTime = Date.now();
-    console.log(`🎬 [AudioGeneration] Starting generation`);
-    console.log(`   Prayer: ${prayerId}`);
-    console.log(`   Voice: ${voiceId}`);
-    console.log(`   Text length: ${text.length} chars`);
+    
+    // 1️⃣ Acquire Redis lock (outside try so we don't clear a lock we never acquired)
+    const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
+    
+    if (!lockAcquired) {
+      throw new ConflictError('Audio generation already in progress');
+    }
     
     try {
-      // 1️⃣ Acquire Redis lock
-      const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
+      const ttsResponse = await TTSService.generateAudio({
+        prayerId,
+        text,
+        voiceId,
+        userId
+      });
       
-      if (!lockAcquired) {
-        console.log(`⚠️ [AudioGeneration] Lock already held - generation in progress`);
-        throw new Error('ALREADY_BUILDING: Audio generation already in progress');
-      }
+      const audioBuffer = Buffer.from(ttsResponse.audioData, 'base64');
       
-      console.log(`🔒 [AudioGeneration] Lock acquired (TTL: 600s)`);
+      const { s3Key, s3Url } = await S3Service.uploadAudio(
+        prayerId,
+        voiceId,
+        audioBuffer,
+        {
+          provider: ttsResponse.provider,
+          characterCount: ttsResponse.metadata.characterCount
+        }
+      );
       
-      try {
-        // 2️⃣ Generate audio using existing TTSService
-        console.log(`🎙️ [AudioGeneration] Calling TTSService...`);
-        
-        const ttsResponse = await TTSService.generateAudio({
-          prayerId,
-          text,
-          voiceId,
-          userId
-        });
-        
-        console.log(`✅ [AudioGeneration] TTS generation complete`);
-        console.log(`   Provider: ${ttsResponse.provider}`);
-        console.log(`   Cost: $${ttsResponse.metadata.estimatedCost.toFixed(4)}`);
-        console.log(`   Time: ${ttsResponse.metadata.responseTimeMs}ms`);
-        
-        // 3️⃣ Convert base64 to Buffer
-        const audioBuffer = Buffer.from(ttsResponse.audioData, 'base64');
-        console.log(`📦 [AudioGeneration] Converted to buffer: ${audioBuffer.length} bytes`);
-        
-        // 4️⃣ Upload to S3
-        console.log(`☁️ [AudioGeneration] Uploading to S3...`);
-        
-        const { s3Key, s3Url } = await S3Service.uploadAudio(
-          prayerId,
-          voiceId,
-          audioBuffer,
-          {
-            provider: ttsResponse.provider,
-            characterCount: ttsResponse.metadata.characterCount
-          }
-        );
-        
-        console.log(`✅ [AudioGeneration] Uploaded to S3`);
-        console.log(`   Key: ${s3Key}`);
-        console.log(`   URL: ${s3Url}`);
-        
-        // 5️⃣ Save to database
-        console.log(`💾 [AudioGeneration] Saving to database...`);
-        
-        await AudioService.saveAudioFile({
-          prayerId,
-          voiceId,
-          s3Bucket: S3Service.getBucketName(),
-          s3Key,
-          s3Url,
-          fileSizeBytes: audioBuffer.length,
-          provider: ttsResponse.provider
-        });
-        
-        const totalTime = Date.now() - startTime;
-        
-        console.log(`✅ [AudioGeneration] COMPLETE!`);
-        console.log(`   Total time: ${totalTime}ms`);
-        console.log(`   TTS: ${ttsResponse.metadata.responseTimeMs}ms`);
-        console.log(`   S3 + DB: ${totalTime - ttsResponse.metadata.responseTimeMs}ms`);
-        
-      } finally {
-        // 6️⃣ ALWAYS clear Redis lock (even if generation failed)
-        await redisService.clearBuilding(prayerId, voiceId);
-        console.log(`🔓 [AudioGeneration] Lock released`);
-      }
-      
-    } catch (error: any) {
-      console.error(`❌ [AudioGeneration] Generation failed:`, error);
-      
-      // Make sure lock is cleared on error
-      try {
-        await redisService.clearBuilding(prayerId, voiceId);
-        console.log(`🔓 [AudioGeneration] Lock released after error`);
-      } catch (cleanupError) {
-        console.error(`❌ [AudioGeneration] Failed to release lock:`, cleanupError);
-      }
-      
-      throw error;
+      await AudioService.saveAudioFile({
+        prayerId,
+        voiceId,
+        s3Bucket: S3Service.getBucketName(),
+        s3Key,
+        s3Url,
+        fileSizeBytes: audioBuffer.length,
+        provider: ttsResponse.provider
+      });
+    } finally {
+      await redisService.clearBuilding(prayerId, voiceId);
     }
   }
+
   
   /**
    * Generate audio in the background (fire and forget)
@@ -312,23 +244,25 @@ export class AudioService {
    * @param userId - User UUID
    */
   public static generateInBackground(
-    prayerId: string,
-    text: string,
-    voiceId: string,
-    userId: string
-  ): void {
-    
-    // Fire and forget - don't await
-    this.generateAndStore(prayerId, text, voiceId, userId)
-      .then(() => {
-        console.log(`🎉 [AudioGeneration] Background generation succeeded`);
-      })
-      .catch((error) => {
-        console.error(`❌ [AudioGeneration] Background generation failed:`, error);
-        // In production, you might want to:
-        // - Send to error tracking (Sentry, etc.)
-        // - Retry with exponential backoff
-        // - Notify user of failure
-      });
-  }
+  prayerId: string,
+  text: string,
+  voiceId: string,
+  userId: string
+): void {
+  this.generateAndStore(prayerId, text, voiceId, userId)
+    .catch((error: unknown) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      
+      console.error(JSON.stringify({
+        level: 'error',
+        type: 'background_audio_generation',
+        prayerId,
+        voiceId,
+        userId,
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString(),
+      }));
+    });
+}
 }
