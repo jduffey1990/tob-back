@@ -3,6 +3,9 @@ import { Pool, PoolClient, QueryResult, PoolConfig } from 'pg';
 
 type QueryParams = Array<string | number | boolean | null | Date | Buffer | object>;
 
+// Threshold in ms — any query slower than this gets a warning log
+const SLOW_QUERY_THRESHOLD_MS = 500;
+
 export class PostgresService {
   private static instance: PostgresService;
   private pool: Pool | null = null;
@@ -44,8 +47,22 @@ export class PostgresService {
     this.pool = new Pool({ ...base, ...config });
 
     this.pool.on('error', (err) => {
-      // This is important so the app doesn’t silently hang on idle client errors.
-      console.error('[Postgres pool error]', err);
+      console.error(JSON.stringify({
+        level: 'error',
+        type: 'db_pool_error',
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString(),
+      }));
+    });
+
+    this.pool.on('connect', () => {
+      console.log(JSON.stringify({
+        level: 'info',
+        type: 'db_connection',
+        message: 'New pool client connected',
+        timestamp: new Date().toISOString(),
+      }));
     });
 
     return this.pool;
@@ -53,7 +70,7 @@ export class PostgresService {
 
   /**
    * Simple query helper for one-off queries.
-   * Ensure connect() was called during app bootstrap.
+   * Logs slow queries (> 500ms) with the SQL text for debugging.
    */
   public async query<T extends import('pg').QueryResultRow = import('pg').QueryResultRow>(
     text: string, 
@@ -62,9 +79,40 @@ export class PostgresService {
     if (!this.pool) throw new Error('PostgresService not connected. Call connect() first.');
   
     const start = Date.now();
-    const result = await this.pool.query<T>(text, params);
     
-    return result;
+    try {
+      const result = await this.pool.query<T>(text, params);
+      const duration_ms = Date.now() - start;
+
+      // Log slow queries so you catch missing indexes before they become outages
+      if (duration_ms > SLOW_QUERY_THRESHOLD_MS) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          type: 'slow_query',
+          duration_ms,
+          rowCount: result.rowCount,
+          // Log the parameterized SQL, NOT the actual param values (no PII leaks)
+          query: text.substring(0, 200),
+          timestamp: new Date().toISOString(),
+        }));
+      }
+
+      return result;
+    } catch (err: any) {
+      const duration_ms = Date.now() - start;
+      
+      console.error(JSON.stringify({
+        level: 'error',
+        type: 'db_query_error',
+        duration_ms,
+        query: text.substring(0, 200),
+        message: err.message,
+        code: err.code,  // Postgres error codes like '23505' (unique violation), '42P01' (undefined table)
+        timestamp: new Date().toISOString(),
+      }));
+
+      throw err;
+    }
   }
 
   /**
@@ -84,18 +132,35 @@ export class PostgresService {
    *     await tx.query('UPDATE ...');
    *   });
    */
-  public async runInTransaction<T>(fn: (tx: PoolClient) => Promise<T>): Promise<T> {
+    public async runInTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.getClient();
+    const start = Date.now();
     try {
       await client.query('BEGIN');
       const result = await fn(client);
       await client.query('COMMIT');
+      
+      const duration_ms = Date.now() - start;
+      if (duration_ms > SLOW_QUERY_THRESHOLD_MS) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          type: 'slow_transaction',
+          duration_ms,
+          timestamp: new Date().toISOString(),
+        }));
+      }
+
       return result;
-    } catch (err) {
+    } catch (err: any) {
       try {
         await client.query('ROLLBACK');
       } catch (rollbackErr) {
-        console.error('[Postgres rollback error]', rollbackErr);
+        console.error(JSON.stringify({
+          level: 'error',
+          type: 'db_rollback_error',
+          message: (rollbackErr as Error).message,
+          timestamp: new Date().toISOString(),
+        }));
       }
       throw err;
     } finally {

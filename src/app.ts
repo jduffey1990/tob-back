@@ -19,6 +19,7 @@ import { tokenRoutes } from './routes/tokenRoutes'
 import { ttsRoutes } from './routes/ttsRoutes'
 import { userRoutes } from './routes/userRoutes'
 import { denominationRoutes } from './routes/denominationRoutes'
+import requestLoggerPlugin from './plugins/requestLogger'
 
 dotenv.config()
 
@@ -89,6 +90,7 @@ async function buildServer() {
   S3Service.initialize()
 
   await server.register(require('@hapi/jwt'))
+  await server.register(requestLoggerPlugin)
 
   server.auth.strategy('jwt', 'jwt', {
     keys: jwtSecret,

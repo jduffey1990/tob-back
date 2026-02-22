@@ -83,6 +83,33 @@ resource "aws_lambda_function" "main" {
 }
 
 # ============================================
+# ALLOW LAMBDA TO SEND EMAIL VIA SES
+# ============================================
+
+resource "aws_iam_policy" "lambda_ses_send" {
+  name = "${var.service_name}-ses-send"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_ses_attach" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_ses_send.arn
+}
+
+# ============================================
 # API GATEWAY (HTTP API)
 # ============================================
 
