@@ -237,7 +237,7 @@ export class TTSService {
     const tierHierarchy: Record<string, number> = {
       'free': 0,
       'pro': 1,
-      'warrior': 2,
+      'prayer_warrior': 2,
       'lifetime': 3
     };
     

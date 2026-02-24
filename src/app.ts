@@ -19,6 +19,7 @@ import { tokenRoutes } from './routes/tokenRoutes'
 import { ttsRoutes } from './routes/ttsRoutes'
 import { userRoutes } from './routes/userRoutes'
 import { denominationRoutes } from './routes/denominationRoutes'
+import { appleRoutes } from './routes/appleRoutes'
 import requestLoggerPlugin from './plugins/requestLogger'
 
 dotenv.config()
@@ -49,7 +50,8 @@ const allRoutes = asServerRoutes([
   ...redisRoutes as unknown as ServerRoute[],
   ...audioRoutes as unknown as ServerRoute[],
   ...passwordResetRoutes as unknown as ServerRoute[],
-  ...denominationRoutes as unknown as ServerRoute[]
+  ...denominationRoutes as unknown as ServerRoute[],
+  ...appleRoutes as unknown as ServerRoute[]  
 ])
 
 async function buildServer() {
