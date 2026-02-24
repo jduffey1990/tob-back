@@ -6,6 +6,11 @@
 import { Plugin, Request, ResponseToolkit, Server } from '@hapi/hapi';
 import Boom from '@hapi/boom';
 
+declare module '@hapi/hapi' {
+  interface RequestApplicationState {
+    startTime?: number;
+  }
+}
 interface StructuredLog {
   level: 'info' | 'warn' | 'error';
   type: 'request';
