@@ -557,7 +557,7 @@ export class EmailService {
         free: '#6b7280',
         pro: '#8b5cf6',
         lifetime: '#f59e0b',
-        prayerwarrior: '#ef4444',
+        prayer_warrior: '#ef4444',
       };
       return colors[tier] || '#6b7280';
     };

@@ -318,7 +318,7 @@ export class TTSService {
         language: 'en-GB',
         gender: 'male',
         description: 'Authoritative British voice',
-        tier: 'pro',
+        tier: 'prayer_warrior',
         provider: 'azure',
         file: 'ryan_neural'
       },
@@ -330,7 +330,7 @@ export class TTSService {
         language: 'en-US',
         gender: 'neutral',
         description: 'Natural AI voice with emotion control',
-        tier: 'warrior',
+        tier: 'prayer_warrior',
         provider: 'fishaudio',
         file: 'selene_preview'
       },
@@ -340,7 +340,7 @@ export class TTSService {
         language: 'en-US',
         gender: 'male',
         description: 'Personal cloned voice',
-        tier: 'warrior',
+        tier: 'prayer_warrior',
         provider: 'fishaudio',
         file: 'jordan_preview'
       },
@@ -350,7 +350,7 @@ export class TTSService {
         language: 'en-US',
         gender: 'male',
         description: 'Sneak from LOTR',
-        tier: 'warrior',
+        tier: 'prayer_warrior',
         provider: 'fishaudio',
         file: 'golem_preview'
       }

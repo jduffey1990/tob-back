@@ -223,6 +223,8 @@ export class AppleSubscriptionService {
 
     if (existing.length > 0) {
       console.log(`ℹ️  Transaction ${originalTransactionId} already processed — skipping insert`);
+      // Still ensure user's tier is correct even on repeat calls
+      await this.updateUserSubscription(userId, tier, expiresAt);
       return { tier, expiresAt };
     }
 
