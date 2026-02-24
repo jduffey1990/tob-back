@@ -118,6 +118,9 @@ export class AuthService {
     const row = rows[0];
     if (!row) return { isValid: false };
 
+    // Reject soft-deleted users (invalidates existing JWTs)
+    if (row.deleted_at) return { isValid: false };
+
     return { isValid: true, credentials: rowToUserSafe(row) };
   }
 }
