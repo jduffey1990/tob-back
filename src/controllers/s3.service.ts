@@ -34,13 +34,16 @@ export class S3Service {
     }
 
     S3Service.bucket = bucket;
-    S3Service.client = new S3Client({
-      region,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
+    S3Service.client = process.env.NODE_ENV === 'production'
+      ? new S3Client({ region })  // Lambda role handles auth
+      : new S3Client({            // Local dev uses explicit keys
+          region,
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+          },
+        });
+
 
     console.log(`✅ S3 initialized: bucket=${bucket}, region=${region}`);
   }
