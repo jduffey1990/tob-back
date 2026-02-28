@@ -1,6 +1,6 @@
 // src/controllers/statsService.ts
-import { PostgresService } from './postgres.service';
 import { EmailService } from './email.service';
+import { PostgresService } from './postgres.service';
 
 /**
  * Daily stats digest service
@@ -49,7 +49,11 @@ interface AudioStats {
 interface MiscStats {
   denominationBreakdown: Record<string, number>;
   passwordResetsLast24h: number;
-  prayOnItTemplates: { active: number; inactive: number };
+  prayOnItStats: {
+  total: number;
+  newLast24h: number;
+  avgPerUser: string;
+};
   topUsers: Array<{ name: string; prayer_count: number; play_count: number }>;
 }
 
@@ -365,18 +369,29 @@ export class StatsService {
        WHERE created_at >= NOW() - INTERVAL '24 hours'`
     );
 
-    // Pray On It template counts
-    const templateRes = await db.query<{ is_active: boolean; count: string }>(
-      `SELECT is_active, COUNT(*) as count 
-       FROM pray_on_it_items 
-       GROUP BY is_active`
+    // Pray On It metrics
+
+    // Total items
+    const totalRes = await db.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM pray_on_it_items`
     );
 
-    const templateCounts = { active: 0, inactive: 0 };
-    templateRes.rows.forEach(r => {
-      if (r.is_active) templateCounts.active = parseInt(r.count);
-      else templateCounts.inactive = parseInt(r.count);
-    });
+    // New in last 24h
+    const newRes = await db.query<{ count: string }>(
+      `SELECT COUNT(*) as count
+      FROM pray_on_it_items
+      WHERE created_at >= NOW() - INTERVAL '24 hours'`
+    );
+
+    // Average per user
+    const avgRes = await db.query<{ avg_items: string }>(
+      `SELECT ROUND(AVG(item_count)::numeric, 1) as avg_items
+      FROM (
+        SELECT user_id, COUNT(*) as item_count
+        FROM pray_on_it_items
+        GROUP BY user_id
+      ) user_items`
+    );
 
     // Top 5 power users (anonymized - first name + last initial only)
     const topUsersRes = await db.query<{ name: string; prayer_count: number; play_count: number }>(
@@ -395,7 +410,11 @@ export class StatsService {
     return {
       denominationBreakdown: Object.fromEntries(denomRes.rows.map(r => [r.denomination, parseInt(r.count)])),
       passwordResetsLast24h: parseInt(resetRes.rows[0].count),
-      prayOnItTemplates: templateCounts,
+      prayOnItStats: {
+        total: parseInt(totalRes.rows[0].count),
+        newLast24h: parseInt(newRes.rows[0].count),
+        avgPerUser: avgRes.rows[0]?.avg_items || '0',
+      },
       topUsers: topUsersRes.rows.map(r => ({
         name: anonymizeName(r.name),
         prayer_count: r.prayer_count,
