@@ -15,6 +15,7 @@
 - [Database Schema](#-database-schema)
 - [Services Breakdown](#-services-breakdown)
 - [Infrastructure](#️-infrastructure)
+- [Monitoring and Observability](#-monitoring-and-observability)
 - [Development Setup](#-development-setup)
 - [Deployment](#-deployment)
 - [Testing](#-testing)
@@ -640,6 +641,68 @@ Mobile App
 
 ---
 
+## 🔍 Monitoring and Observability
+
+### Architecture
+
+The backend uses a structured observability layer across three levels:
+
+**1. Request Logging (Hapi Plugin)**
+- Custom Hapi plugin (`src/plugins/requestLogger.ts`) hooks into the server lifecycle at `onRequest` and `onPreResponse`
+- Every request is logged as structured JSON: method, route pattern, status code, duration, authenticated user ID, and tier
+- 4xx errors log with context, 5xx errors include full stack traces
+- Slow non-TTS requests (>5s) trigger separate warning logs
+- Zero route-level changes required — the plugin fires automatically on all endpoints
+
+**2. Database Query Monitoring**
+- `PostgresService.query()` tracks execution time on every query
+- Queries exceeding 500ms are logged with parameterized SQL (no PII in logs)
+- Failed queries log Postgres error codes for fast diagnosis (e.g., `23505` unique violation, `42P01` undefined table)
+- Connection pool errors and transaction rollback failures are captured with structured logging
+
+**3. CloudWatch Alarms (Terraform)**
+- **Lambda Errors**: Alerts when >5 errors occur in a 5-minute window (unhandled exceptions, timeouts, OOM)
+- **Lambda Duration**: Alerts when average duration exceeds 10s sustained over 10 minutes (stuck DB connections, hanging external APIs)
+- **Lambda Throttles**: Alerts on any throttle event (concurrency limit hit)
+- **API Gateway 5xx**: Alerts when >10 gateway-level 5xx errors occur in 5 minutes
+- All alarms notify via SNS email and send recovery notifications
+
+### Querying Logs (CloudWatch Logs Insights)
+
+```
+# All errors in the last hour
+fields @timestamp, method, path, statusCode, duration_ms, userId, error.message
+| filter level = "error"
+| sort @timestamp desc
+
+# Slowest requests
+fields @timestamp, method, path, duration_ms, userId
+| filter type = "request"
+| sort duration_ms desc
+| limit 20
+
+# Slow DB queries
+fields @timestamp, duration_ms, query, rowCount
+| filter type = "slow_query"
+| sort duration_ms desc
+
+# Error count by route
+fields route, statusCode
+| filter type = "request" and statusCode >= 400
+| stats count() as errorCount by route, statusCode
+| sort errorCount desc
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/plugins/requestLogger.ts` | Hapi lifecycle plugin for structured request logging |
+| `src/types/hapi.d.ts` | TypeScript augmentation for `request.app.startTime` |
+| `src/controllers/postgres.service.ts` | Slow query and connection error logging |
+| `terraform/monitoring.tf` | CloudWatch Alarms + SNS alerting |
+___
+
 ## 🚀 Development Setup
 
 ### Prerequisites
@@ -776,6 +839,7 @@ src/tests/
 ```
 
 ---
+
 
 ## 📦 Deployment
 
