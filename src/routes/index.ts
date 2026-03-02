@@ -10,6 +10,7 @@ import { audioRoutes } from './audioRoutes';
 import { passwordResetRoutes } from './passwordResetRoutes';
 import { denominationRoutes } from './denominationRoutes';
 import { appleRoutes } from './appleRoutes';
+import { playlistRoutes } from './playlistRoutes'
 
 export default [
   ...userRoutes,
@@ -23,5 +24,6 @@ export default [
   ...audioRoutes,
   ...passwordResetRoutes,
   ...denominationRoutes,
-  ...appleRoutes
+  ...appleRoutes,
+  ...playlistRoutes
 ];
