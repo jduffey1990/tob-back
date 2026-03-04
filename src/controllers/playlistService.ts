@@ -1,32 +1,23 @@
 // src/controllers/playlistService.ts
 
-import { PostgresService } from './postgres.service';
-import { AudioService } from './audioService';
 import {
+  CreatePlaylistInput,
   Playlist,
   PlaylistDetail,
   PlaylistPrayerDetail,
   PlaylistRow,
   PlaylistSummary,
-  CreatePlaylistInput,
   UpdatePlaylistInput,
   rowToPlaylist,
 } from '../models/playlist';
+import { AudioService } from './audioService';
+import { PostgresService } from './postgres.service';
 
 export class PlaylistService {
 
-  // ============================================
-  // CREATE
-  // ============================================
-
-  /**
-   * Create a new playlist with an initial ordered set of prayers.
-   * prayerIds array index becomes position (0-indexed).
-   */
   public static async createPlaylist(input: CreatePlaylistInput): Promise<Playlist> {
     const db = PostgresService.getInstance();
 
-    // Insert playlist row
     const { rows } = await db.query<PlaylistRow>(
       `INSERT INTO playlists (user_id, name)
        VALUES ($1::uuid, $2)
@@ -36,7 +27,6 @@ export class PlaylistService {
 
     const playlist = rowToPlaylist(rows[0]);
 
-    // Insert playlist_prayers rows if any provided
     if (input.prayerIds.length > 0) {
       await PlaylistService.replacePrayerEntries(playlist.id, input.prayerIds, db);
     }
@@ -45,14 +35,6 @@ export class PlaylistService {
     return playlist;
   }
 
-  // ============================================
-  // READ — List
-  // ============================================
-
-  /**
-   * Get all playlists for a user, with prayer count.
-   * Used for the "Listen to Previous Playlist" list view.
-   */
   public static async findUserPlaylists(userId: string): Promise<PlaylistSummary[]> {
     const db = PostgresService.getInstance();
 
@@ -80,27 +62,20 @@ export class PlaylistService {
     }));
   }
 
-  // ============================================
-  // READ — Detail
-  // ============================================
-
   /**
-   * Get full playlist detail including per-prayer audio state
-   * resolved against the provided voiceId.
+   * Get full playlist detail including per-prayer audio state.
    *
-   * Fans out audio state checks concurrently — one Promise.all
-   * across all prayers rather than sequential queries.
-   *
-   * Used by GET /playlists/:id?voiceId=
+   * voiceId is now optional. When undefined (Apple TTS client), we skip
+   * the audio-state fan-out entirely and return every prayer as MISSING —
+   * the iOS client owns playback for Apple voices and doesn't need URLs.
    */
   public static async findPlaylistDetail(
     playlistId: string,
     userId: string,
-    voiceId: string
+    voiceId: string | undefined
   ): Promise<PlaylistDetail | null> {
     const db = PostgresService.getInstance();
 
-    // 1. Verify playlist exists and belongs to user
     const { rows: playlistRows } = await db.query<PlaylistRow>(
       `SELECT * FROM playlists
        WHERE id = $1::uuid AND user_id = $2::uuid
@@ -114,7 +89,6 @@ export class PlaylistService {
 
     const playlist = rowToPlaylist(playlistRows[0]);
 
-    // 2. Fetch ordered prayers joined with prayer text/title
     const { rows: prayerRows } = await db.query(
       `SELECT
          pp.prayer_id,
@@ -128,47 +102,51 @@ export class PlaylistService {
       [playlistId]
     );
 
-    // 3. Fan out audio state checks concurrently
-    const prayerDetails: PlaylistPrayerDetail[] = await Promise.all(
-      prayerRows.map(async (row): Promise<PlaylistPrayerDetail> => {
-        const audioState = await AudioService.getAudioState(row.prayer_id, voiceId);
+    let prayerDetails: PlaylistPrayerDetail[];
 
-        return {
-          prayerId: row.prayer_id,
-          prayerTitle: row.prayer_title,
-          prayerText: row.prayer_text,
-          position: row.position,
-          audioState: audioState.state,
-          audioUrl: audioState.audioUrl,
-        };
-      })
-    );
+    if (!voiceId) {
+      // Apple TTS — no backend audio state needed. Return all prayers as MISSING
+      // so the iOS client can drive playback entirely on-device.
+      console.log(`ℹ️ [PlaylistService] No voiceId — skipping audio state checks (Apple TTS client)`);
+      prayerDetails = prayerRows.map(row => ({
+        prayerId:    row.prayer_id,
+        prayerTitle: row.prayer_title,
+        prayerText:  row.prayer_text,
+        position:    row.position,
+        audioState:  'MISSING' as const,
+        audioUrl:    undefined,
+      }));
+    } else {
+      // Backend TTS — fan out audio state checks concurrently
+      prayerDetails = await Promise.all(
+        prayerRows.map(async (row): Promise<PlaylistPrayerDetail> => {
+          const audioState = await AudioService.getAudioState(row.prayer_id, voiceId);
+          return {
+            prayerId:    row.prayer_id,
+            prayerTitle: row.prayer_title,
+            prayerText:  row.prayer_text,
+            position:    row.position,
+            audioState:  audioState.state,
+            audioUrl:    audioState.audioUrl,
+          };
+        })
+      );
 
-    console.log(
-      `✅ [PlaylistService] Detail for "${playlist.name}": ` +
-      `${prayerDetails.filter(p => p.audioState === 'READY').length}/${prayerDetails.length} READY`
-    );
+      console.log(
+        `✅ [PlaylistService] Detail for "${playlist.name}": ` +
+        `${prayerDetails.filter(p => p.audioState === 'READY').length}/${prayerDetails.length} READY`
+      );
+    }
 
     return {
-      id: playlist.id,
-      name: playlist.name,
+      id:        playlist.id,
+      name:      playlist.name,
       createdAt: playlist.createdAt,
       updatedAt: playlist.updatedAt,
-      prayers: prayerDetails,
+      prayers:   prayerDetails,
     };
   }
 
-  // ============================================
-  // UPDATE
-  // ============================================
-
-  /**
-   * Update a playlist's name and/or ordered prayer list.
-   * prayerIds is a full replacement — existing entries are deleted
-   * and re-inserted with new positions.
-   *
-   * Called on explicit Save from PlaylistPlayerView.
-   */
   public static async updatePlaylist(
     playlistId: string,
     userId: string,
@@ -176,7 +154,6 @@ export class PlaylistService {
   ): Promise<Playlist | null> {
     const db = PostgresService.getInstance();
 
-    // Verify ownership
     const { rows } = await db.query<PlaylistRow>(
       `SELECT * FROM playlists
        WHERE id = $1::uuid AND user_id = $2::uuid
@@ -188,7 +165,6 @@ export class PlaylistService {
       return null;
     }
 
-    // Update name if provided
     if (input.name !== undefined) {
       await db.query(
         `UPDATE playlists SET name = $1 WHERE id = $2::uuid`,
@@ -196,12 +172,10 @@ export class PlaylistService {
       );
     }
 
-    // Replace prayer entries if provided
     if (input.prayerIds !== undefined) {
       await PlaylistService.replacePrayerEntries(playlistId, input.prayerIds, db);
     }
 
-    // Return updated row
     const { rows: updatedRows } = await db.query<PlaylistRow>(
       `SELECT * FROM playlists WHERE id = $1::uuid`,
       [playlistId]
@@ -211,14 +185,6 @@ export class PlaylistService {
     return rowToPlaylist(updatedRows[0]);
   }
 
-  // ============================================
-  // DELETE
-  // ============================================
-
-  /**
-   * Delete a playlist. Cascade handles playlist_prayers cleanup.
-   * Returns true if deleted, false if not found / not owned.
-   */
   public static async deletePlaylist(playlistId: string, userId: string): Promise<boolean> {
     const db = PostgresService.getInstance();
 
@@ -235,24 +201,11 @@ export class PlaylistService {
     return deleted;
   }
 
-  // ============================================
-  // PRIVATE HELPERS
-  // ============================================
-
-  /**
-   * Delete all existing playlist_prayers for a playlist and
-   * re-insert from the provided ordered prayerIds array.
-   * Array index becomes position value (0-indexed).
-   *
-   * Runs inside the caller's db instance so it participates
-   * in the same connection context.
-   */
   private static async replacePrayerEntries(
     playlistId: string,
     prayerIds: string[],
     db: ReturnType<typeof PostgresService.getInstance>
   ): Promise<void> {
-    // Clear existing entries
     await db.query(
       `DELETE FROM playlist_prayers WHERE playlist_id = $1::uuid`,
       [playlistId]
@@ -260,8 +213,6 @@ export class PlaylistService {
 
     if (prayerIds.length === 0) return;
 
-    // Build multi-row INSERT
-    // VALUES ($1, $2, $3), ($1, $4, $5), ...
     const valuePlaceholders = prayerIds
       .map((_, i) => `($1::uuid, $${i * 2 + 2}::uuid, $${i * 2 + 3})`)
       .join(', ');

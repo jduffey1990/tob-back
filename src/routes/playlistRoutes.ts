@@ -7,10 +7,6 @@ import type { UserSafe } from '../models/user';
 
 const PLAYLIST_TIERS = ['prayer_warrior', 'lifetime'];
 
-/**
- * Check that the authed user is on a playlist-enabled tier.
- * Returns the tier string, or throws an error handled by the route.
- */
 async function requirePlaylistTier(userId: string): Promise<string> {
   const userInfo = await UserService.getUserInfo(userId);
   if (!PLAYLIST_TIERS.includes(userInfo.subscriptionTier)) {
@@ -24,9 +20,6 @@ async function requirePlaylistTier(userId: string): Promise<string> {
 
 export const playlistRoutes: ServerRoute[] = [
 
-  // ============================================
-  // GET /playlists — List user's playlists
-  // ============================================
   {
     method: 'GET',
     path: '/playlists',
@@ -34,11 +27,8 @@ export const playlistRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         await requirePlaylistTier(authUser.id);
-
         const playlists = await PlaylistService.findUserPlaylists(authUser.id);
-
         return h.response({ playlists, count: playlists.length }).code(200);
-
       } catch (error: any) {
         if (error.code === 'TIER_REQUIRED') {
           return h.response({ error: error.message, upgradeRequired: true }).code(403);
@@ -55,9 +45,6 @@ export const playlistRoutes: ServerRoute[] = [
     },
   },
 
-  // ============================================
-  // POST /playlists — Create a new playlist
-  // ============================================
   {
     method: 'POST',
     path: '/playlists',
@@ -66,19 +53,14 @@ export const playlistRoutes: ServerRoute[] = [
         const authUser = request.auth.credentials as UserSafe;
         await requirePlaylistTier(authUser.id);
 
-        const payload = request.payload as {
-          name: string;
-          prayerIds: string[];
-        };
+        const payload = request.payload as { name: string; prayerIds: string[] };
 
         if (!payload.name || payload.name.trim().length === 0) {
           return h.response({ error: 'name is required' }).code(400);
         }
-
         if (payload.name.trim().length > 255) {
           return h.response({ error: 'name must be 255 characters or less' }).code(400);
         }
-
         if (!Array.isArray(payload.prayerIds) || payload.prayerIds.length === 0) {
           return h.response({ error: 'prayerIds must be a non-empty array' }).code(400);
         }
@@ -90,7 +72,6 @@ export const playlistRoutes: ServerRoute[] = [
         });
 
         return h.response(playlist).code(201);
-
       } catch (error: any) {
         if (error.code === 'TIER_REQUIRED') {
           return h.response({ error: error.message, upgradeRequired: true }).code(403);
@@ -109,6 +90,9 @@ export const playlistRoutes: ServerRoute[] = [
 
   // ============================================
   // GET /playlists/{id} — Playlist detail with per-prayer audio state
+  // voiceId is now OPTIONAL. When omitted (e.g. Apple TTS client),
+  // all prayers are returned with audioState "MISSING" — the iOS
+  // client handles playback entirely on-device for Apple voices.
   // ============================================
   {
     method: 'GET',
@@ -119,16 +103,13 @@ export const playlistRoutes: ServerRoute[] = [
         await requirePlaylistTier(authUser.id);
 
         const { id: playlistId } = request.params;
+        // voiceId is optional — absent means Apple TTS (client-side voice)
         const { voiceId } = request.query as { voiceId?: string };
-
-        if (!voiceId) {
-          return h.response({ error: 'voiceId query parameter is required' }).code(400);
-        }
 
         const detail = await PlaylistService.findPlaylistDetail(
           playlistId,
           authUser.id,
-          voiceId
+          voiceId   // may be undefined
         );
 
         if (!detail) {
@@ -136,7 +117,6 @@ export const playlistRoutes: ServerRoute[] = [
         }
 
         return h.response(detail).code(200);
-
       } catch (error: any) {
         if (error.code === 'TIER_REQUIRED') {
           return h.response({ error: error.message, upgradeRequired: true }).code(403);
@@ -148,14 +128,11 @@ export const playlistRoutes: ServerRoute[] = [
     options: {
       auth: 'jwt',
       description: 'Get full playlist detail with per-prayer audio state',
-      notes: 'voiceId query param required. Fans out audio state checks internally.',
+      notes: 'voiceId query param optional. Omit for Apple TTS — prayers returned with audioState MISSING.',
       tags: ['api', 'playlists'],
     },
   },
 
-  // ============================================
-  // PUT /playlists/{id} — Update name and/or prayer order
-  // ============================================
   {
     method: 'PUT',
     path: '/playlists/{id}',
@@ -165,24 +142,17 @@ export const playlistRoutes: ServerRoute[] = [
         await requirePlaylistTier(authUser.id);
 
         const { id: playlistId } = request.params;
-        const payload = request.payload as {
-          name?: string;
-          prayerIds?: string[];
-        };
+        const payload = request.payload as { name?: string; prayerIds?: string[] };
 
-        // Must provide at least one field to update
         if (payload.name === undefined && payload.prayerIds === undefined) {
           return h.response({ error: 'Provide at least one of: name, prayerIds' }).code(400);
         }
-
         if (payload.name !== undefined && payload.name.trim().length === 0) {
           return h.response({ error: 'name cannot be empty' }).code(400);
         }
-
         if (payload.name !== undefined && payload.name.trim().length > 255) {
           return h.response({ error: 'name must be 255 characters or less' }).code(400);
         }
-
         if (payload.prayerIds !== undefined && !Array.isArray(payload.prayerIds)) {
           return h.response({ error: 'prayerIds must be an array' }).code(400);
         }
@@ -190,10 +160,7 @@ export const playlistRoutes: ServerRoute[] = [
         const updated = await PlaylistService.updatePlaylist(
           playlistId,
           authUser.id,
-          {
-            name: payload.name?.trim(),
-            prayerIds: payload.prayerIds,
-          }
+          { name: payload.name?.trim(), prayerIds: payload.prayerIds }
         );
 
         if (!updated) {
@@ -201,7 +168,6 @@ export const playlistRoutes: ServerRoute[] = [
         }
 
         return h.response(updated).code(200);
-
       } catch (error: any) {
         if (error.code === 'TIER_REQUIRED') {
           return h.response({ error: error.message, upgradeRequired: true }).code(403);
@@ -218,9 +184,6 @@ export const playlistRoutes: ServerRoute[] = [
     },
   },
 
-  // ============================================
-  // DELETE /playlists/{id} — Delete a playlist
-  // ============================================
   {
     method: 'DELETE',
     path: '/playlists/{id}',
@@ -230,7 +193,6 @@ export const playlistRoutes: ServerRoute[] = [
         await requirePlaylistTier(authUser.id);
 
         const { id: playlistId } = request.params;
-
         const deleted = await PlaylistService.deletePlaylist(playlistId, authUser.id);
 
         if (!deleted) {
@@ -238,7 +200,6 @@ export const playlistRoutes: ServerRoute[] = [
         }
 
         return h.response({ message: 'Playlist deleted' }).code(200);
-
       } catch (error: any) {
         if (error.code === 'TIER_REQUIRED') {
           return h.response({ error: error.message, upgradeRequired: true }).code(403);

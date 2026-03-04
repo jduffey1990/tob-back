@@ -1,6 +1,8 @@
 // src/routes/prayerRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import { PrayerService } from '../controllers/prayerService';
+import { TTSService } from '../controllers/ttsService';
+import { AudioService } from '../controllers/audioService';
 import { PrayerLimitService } from '../controllers/prayerLimitService';
 import { AIService } from '../controllers/aiService'
 import type { UserSafe } from '../models/user';
@@ -114,7 +116,24 @@ export const prayerRoutes: ServerRoute[] = [
           isTemplate: false
         });
         
-        return h.response(newPrayer).code(201);
+        // After creating the prayer successfully:
+          
+
+          // Auto-trigger TTS for the user's current voice (fire-and-forget)
+          const voices = TTSService.getAvailableVoices();
+          const currentVoice = voices[authUser.settings?.voiceIndex ?? 0] ?? null;
+
+          if (currentVoice && currentVoice.provider !== 'apple') {
+            console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
+            AudioService.generateInBackground(
+              newPrayer.id,
+              payload.text.trim(),
+              currentVoice.id,
+              authUser.id
+            );
+          }
+
+          return h.response(newPrayer).code(201);
       } catch (error: any) {
         console.error('Create prayer error:', error);
         return h.response({ error: error.message }).code(500);
