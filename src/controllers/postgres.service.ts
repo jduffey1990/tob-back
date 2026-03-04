@@ -1,5 +1,7 @@
 // users/src/controllers/postgres.service.ts
-import { Pool, PoolClient, QueryResult, PoolConfig } from 'pg';
+import { Pool as PgPool, PoolClient, QueryResult, PoolConfig } from 'pg';
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 
 type QueryParams = Array<string | number | boolean | null | Date | Buffer | object>;
 
@@ -8,7 +10,7 @@ const SLOW_QUERY_THRESHOLD_MS = 500;
 
 export class PostgresService {
   private static instance: PostgresService;
-  private pool: Pool | null = null;
+  private pool: PgPool | null = null;
 
   private constructor() {}
 
@@ -23,11 +25,23 @@ export class PostgresService {
    * Initialize a Pool once. Safe to call multiple times.
    * Uses DATABASE_URL if present; otherwise PG* vars.
    */
-  public connect(config?: PoolConfig): Pool {
+  public connect(config?: PoolConfig): PgPool {
     if (this.pool) return this.pool;
 
     const useUrl = process.env.DATABASE_URL;
     const isProd = process.env.NODE_ENV === 'production';
+    const isLambda = isProd || !!process.env.LAMBDA_TASK_ROOT;
+
+    // Pick the right Pool constructor
+    // Neon's Pool is API-identical to pg's Pool — same .query(), .connect(), .end()
+    let PoolConstructor: typeof PgPool;
+
+    if (isLambda && useUrl) {
+      neonConfig.webSocketConstructor = ws;
+      PoolConstructor = NeonPool as unknown as typeof PgPool;
+    } else {
+      PoolConstructor = PgPool;
+    }
 
     const base: PoolConfig =
       useUrl
@@ -44,7 +58,7 @@ export class PostgresService {
             database: process.env.PGDATABASE || 'towerofbabble',
           };
 
-    this.pool = new Pool({ ...base, ...config });
+    this.pool = new PoolConstructor({ ...base, ...config });
 
     this.pool.on('error', (err) => {
       console.error(JSON.stringify({
