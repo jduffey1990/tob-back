@@ -39,11 +39,37 @@ interface AIStats {
 }
 
 interface AudioStats {
+  // --- audio_files (what exists on S3) ---
   totalAudioFiles: number;
   newAudioLast24h: number;
   byProvider: Record<string, number>;
   totalStorageBytes: number;
   totalDurationSeconds: number;
+
+  // --- tts_generations (what was attempted) ---
+  generationsLast24h: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    zombies: number;         // success IS NULL - started but never resolved
+  };
+  failuresByProvider: Record<string, number>;  // provider -> failure count last 24h
+  costLast24h: number;                         // sum of estimated_cost_usd
+  performance: Array<{                         // one row per provider
+    provider: string;
+    avgTtsMs: number | null;
+    p95TtsMs: number | null;         // 95th percentile - catches outliers better than avg
+    avgS3Ms: number | null;
+    avgTotalMs: number | null;
+    avgCharacters: number | null;
+  }>;
+  slowestGenerationLast24h: {        // the single worst offender
+    provider: string;
+    voiceName: string | null;
+    totalMs: number;
+    characterCount: number;
+    errorCode: string | null;
+  } | null;
 }
 
 interface MiscStats {
@@ -305,23 +331,21 @@ export class StatsService {
   // ============================================
   // AUDIO / TTS METRICS
   // ============================================
-
   private static async getAudioStats(): Promise<AudioStats> {
     const db = PostgresService.getInstance();
 
-    // Total audio files
+    // --- audio_files queries (unchanged from before) ---
+
     const totalRes = await db.query<{ count: string }>(
       `SELECT COUNT(*) as count FROM audio_files`
     );
 
-    // New audio in last 24h
     const recentRes = await db.query<{ count: string }>(
       `SELECT COUNT(*) as count 
        FROM audio_files 
        WHERE created_at >= NOW() - INTERVAL '24 hours'`
     );
 
-    // By provider
     const providerRes = await db.query<{ provider: string; count: string }>(
       `SELECT COALESCE(provider, 'unknown') as provider, COUNT(*) as count 
        FROM audio_files 
@@ -329,7 +353,6 @@ export class StatsService {
        ORDER BY count DESC`
     );
 
-    // Total storage
     const storageRes = await db.query<{ total_bytes: string; total_seconds: string }>(
       `SELECT 
          COALESCE(SUM(file_size_bytes), 0) as total_bytes,
@@ -337,12 +360,124 @@ export class StatsService {
        FROM audio_files`
     );
 
+    // --- tts_generations queries ---
+
+    // Generation outcomes in last 24h broken down by success/fail/zombie
+    const outcomesRes = await db.query<{
+      total: string;
+      succeeded: string;
+      failed: string;
+      zombies: string;
+    }>(
+      `SELECT
+         COUNT(*)                                            AS total,
+         COUNT(*) FILTER (WHERE success = true)             AS succeeded,
+         COUNT(*) FILTER (WHERE success = false)            AS failed,
+         COUNT(*) FILTER (WHERE success IS NULL)            AS zombies
+       FROM tts_generations
+       WHERE created_at >= NOW() - INTERVAL '24 hours'`
+    );
+
+    // Failures by provider in last 24h - tells you which provider is misbehaving
+    const failuresByProviderRes = await db.query<{ provider: string; count: string }>(
+      `SELECT provider, COUNT(*) as count
+       FROM tts_generations
+       WHERE success = false
+         AND created_at >= NOW() - INTERVAL '24 hours'
+       GROUP BY provider
+       ORDER BY count DESC`
+    );
+
+    // Total estimated cost in last 24h
+    const costRes = await db.query<{ total_cost: string }>(
+      `SELECT COALESCE(SUM(estimated_cost_usd), 0) as total_cost
+       FROM tts_generations
+       WHERE created_at >= NOW() - INTERVAL '24 hours'`
+    );
+
+    // Per-provider performance breakdown
+    // percentile_cont gives p95 which surfaces outliers avg would hide
+    const performanceRes = await db.query<{
+      provider: string;
+      avg_tts_ms: string | null;
+      p95_tts_ms: string | null;
+      avg_s3_ms: string | null;
+      avg_total_ms: string | null;
+      avg_characters: string | null;
+    }>(
+      `SELECT
+         provider,
+         ROUND(AVG(tts_response_time_ms))                                          AS avg_tts_ms,
+         ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY tts_response_time_ms)) AS p95_tts_ms,
+         ROUND(AVG(s3_upload_time_ms))                                             AS avg_s3_ms,
+         ROUND(AVG(total_time_ms))                                                 AS avg_total_ms,
+         ROUND(AVG(character_count))                                               AS avg_characters
+       FROM tts_generations
+       WHERE success = true
+         AND created_at >= NOW() - INTERVAL '24 hours'
+       GROUP BY provider
+       ORDER BY avg_total_ms DESC NULLS LAST`
+    );
+
+    // Single slowest generation in last 24h regardless of success/failure
+    // useful for spotting a specific voice or text size causing hangs
+    const slowestRes = await db.query<{
+      provider: string;
+      voice_name: string | null;
+      total_ms: string;
+      character_count: string;
+      error_code: string | null;
+    }>(
+      `SELECT
+         provider,
+         voice_name,
+         total_time_ms   AS total_ms,
+         character_count,
+         error_code
+       FROM tts_generations
+       WHERE total_time_ms IS NOT NULL
+         AND created_at >= NOW() - INTERVAL '24 hours'
+       ORDER BY total_time_ms DESC
+       LIMIT 1`
+    );
+
+    const outcomes = outcomesRes.rows[0];
+    const slowest = slowestRes.rows[0] ?? null;
+
     return {
+      // audio_files
       totalAudioFiles: parseInt(totalRes.rows[0].count),
       newAudioLast24h: parseInt(recentRes.rows[0].count),
       byProvider: Object.fromEntries(providerRes.rows.map(r => [r.provider, parseInt(r.count)])),
       totalStorageBytes: parseInt(storageRes.rows[0].total_bytes),
       totalDurationSeconds: parseFloat(storageRes.rows[0].total_seconds),
+
+      // tts_generations
+      generationsLast24h: {
+        total: parseInt(outcomes.total),
+        succeeded: parseInt(outcomes.succeeded),
+        failed: parseInt(outcomes.failed),
+        zombies: parseInt(outcomes.zombies),
+      },
+      failuresByProvider: Object.fromEntries(
+        failuresByProviderRes.rows.map(r => [r.provider, parseInt(r.count)])
+      ),
+      costLast24h: parseFloat(costRes.rows[0].total_cost),
+      performance: performanceRes.rows.map(r => ({
+        provider: r.provider,
+        avgTtsMs:      r.avg_tts_ms      ? parseInt(r.avg_tts_ms)      : null,
+        p95TtsMs:      r.p95_tts_ms      ? parseInt(r.p95_tts_ms)      : null,
+        avgS3Ms:       r.avg_s3_ms       ? parseInt(r.avg_s3_ms)       : null,
+        avgTotalMs:    r.avg_total_ms    ? parseInt(r.avg_total_ms)    : null,
+        avgCharacters: r.avg_characters  ? parseInt(r.avg_characters)  : null,
+      })),
+      slowestGenerationLast24h: slowest ? {
+        provider:       slowest.provider,
+        voiceName:      slowest.voice_name,
+        totalMs:        parseInt(slowest.total_ms),
+        characterCount: parseInt(slowest.character_count),
+        errorCode:      slowest.error_code,
+      } : null,
     };
   }
 

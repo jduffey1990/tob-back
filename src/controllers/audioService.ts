@@ -182,21 +182,15 @@ export class AudioService {
     return deleteResult.rowCount || 0;
   }
 
-    /**
-   * Generate audio asynchronously with Redis locking and S3 storage
+  /**
+   * Generate audio asynchronously with Redis locking, S3 storage, and
+   * full generation lifecycle tracking in tts_generations.
    * 
-   * Flow:
-   * 1. Acquire Redis lock (prevents duplicates)
-   * 2. Call TTS API (Fish Audio or Azure)
-   * 3. Convert base64 to Buffer
-   * 4. Upload to S3
-   * 5. Save metadata to database
-   * 6. Clear Redis lock
-   * 
-   * @param prayerId - Prayer UUID
-   * @param text - Prayer text to synthesize
-   * @param voiceId - Voice identifier
-   * @param userId - User UUID (for tier validation)
+   * Instrumentation phases:
+   *   INSERT  → lock acquired (captures intent + tts_started_at)
+   *   UPDATE  → after TTS API returns (tts_completed_at, cost)
+   *   UPDATE  → after S3 upload (s3 timing, file size)
+   *   UPDATE  → final success/failure flag + error details
    */
   public static async generateAndStore(
     prayerId: string,
@@ -206,110 +200,174 @@ export class AudioService {
   ): Promise<void> {
     
     const startTime = Date.now();
+    const db = PostgresService.getInstance();
+
     console.log(`🎬 [AudioGeneration] Starting generation`);
     console.log(`   Prayer: ${prayerId}`);
     console.log(`   Voice: ${voiceId}`);
     console.log(`   Text length: ${text.length} chars`);
     
+    // Resolve voice metadata up front so we can denormalize into the record.
+    // The voice catalog is hardcoded and may change — snapshot name/provider now.
+    const voice = TTSService.getVoiceById(voiceId);
+    const voiceName = voice?.name ?? null;
+    const provider = voice?.provider ?? 'unknown';
+
+    // ── 1. Acquire Redis lock ──────────────────────────────────────────────
+    const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
+    
+    if (!lockAcquired) {
+      console.log(`⚠️ [AudioGeneration] Lock already held - generation in progress`);
+      throw new Error('ALREADY_BUILDING: Audio generation already in progress');
+    }
+    
+    console.log(`🔒 [AudioGeneration] Lock acquired (TTL: 600s)`);
+
+    // ── 2. Open tts_generations record ────────────────────────────────────
+    // Inserted immediately after lock so even a hard crash leaves a breadcrumb.
+    // success=null means "in flight"; trigger will compute timing cols on UPDATE.
+    const ttsStartedAt = new Date();
+
+    const generationInsert = await db.query<{ id: string }>(
+      `INSERT INTO tts_generations (
+        user_id, prayer_id, voice_id, voice_name, provider,
+        character_count, tts_started_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id`,
+      [userId, prayerId, voiceId, voiceName, provider, text.length, ttsStartedAt]
+    );
+
+    const ttsGenerationId = generationInsert.rows[0].id;
+    console.log(`📝 [AudioGeneration] tts_generations record created: ${ttsGenerationId}`);
+
     try {
-      // 1️⃣ Acquire Redis lock
-      const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
       
-      if (!lockAcquired) {
-        console.log(`⚠️ [AudioGeneration] Lock already held - generation in progress`);
-        throw new Error('ALREADY_BUILDING: Audio generation already in progress');
-      }
+      // ── 3. Call TTS API ──────────────────────────────────────────────────
+      console.log(`🎙️ [AudioGeneration] Calling TTSService...`);
       
-      console.log(`🔒 [AudioGeneration] Lock acquired (TTL: 600s)`);
+      const ttsResponse = await TTSService.generateAudio({
+        prayerId,
+        text,
+        voiceId,
+        userId
+      });
+
+      const ttsCompletedAt = new Date();
+
+      console.log(`✅ [AudioGeneration] TTS generation complete`);
+      console.log(`   Provider: ${ttsResponse.provider}`);
+      console.log(`   Cost: $${ttsResponse.metadata.estimatedCost.toFixed(4)}`);
+      console.log(`   Time: ${ttsResponse.metadata.responseTimeMs}ms`);
+
+      // ── 4. Stamp TTS completion ──────────────────────────────────────────
+      // Trigger calculates tts_response_time_ms from these two timestamps.
+      await db.query(
+        `UPDATE tts_generations
+         SET tts_completed_at = $1,
+             estimated_cost_usd = $2
+         WHERE id = $3`,
+        [ttsCompletedAt, ttsResponse.metadata.estimatedCost, ttsGenerationId]
+      );
       
-      try {
-        // 2️⃣ Generate audio using existing TTSService
-        console.log(`🎙️ [AudioGeneration] Calling TTSService...`);
-        
-        const ttsResponse = await TTSService.generateAudio({
-          prayerId,
-          text,
-          voiceId,
-          userId
-        });
-        
-        console.log(`✅ [AudioGeneration] TTS generation complete`);
-        console.log(`   Provider: ${ttsResponse.provider}`);
-        console.log(`   Cost: $${ttsResponse.metadata.estimatedCost.toFixed(4)}`);
-        console.log(`   Time: ${ttsResponse.metadata.responseTimeMs}ms`);
-        
-        // 3️⃣ Convert base64 to Buffer
-        const audioBuffer = Buffer.from(ttsResponse.audioData, 'base64');
-        console.log(`📦 [AudioGeneration] Converted to buffer: ${audioBuffer.length} bytes`);
-        
-        // 4️⃣ Upload to S3
-        console.log(`☁️ [AudioGeneration] Uploading to S3...`);
-        
-        const { s3Key, s3Url } = await S3Service.uploadAudio(
-          prayerId,
-          voiceId,
-          audioBuffer,
-          {
-            provider: ttsResponse.provider,
-            characterCount: ttsResponse.metadata.characterCount
-          }
-        );
-        
-        console.log(`✅ [AudioGeneration] Uploaded to S3`);
-        console.log(`   Key: ${s3Key}`);
-        console.log(`   URL: ${s3Url}`);
-        
-        // 5️⃣ Save to database
-        console.log(`💾 [AudioGeneration] Saving to database...`);
-        
-        await AudioService.saveAudioFile({
-          prayerId,
-          voiceId,
-          s3Bucket: S3Service.getBucketName(),
-          s3Key,
-          s3Url,
-          fileSizeBytes: audioBuffer.length,
-          provider: ttsResponse.provider
-        });
-        
-        const totalTime = Date.now() - startTime;
-        
-        console.log(`✅ [AudioGeneration] COMPLETE!`);
-        console.log(`   Total time: ${totalTime}ms`);
-        console.log(`   TTS: ${ttsResponse.metadata.responseTimeMs}ms`);
-        console.log(`   S3 + DB: ${totalTime - ttsResponse.metadata.responseTimeMs}ms`);
-        
-      } finally {
-        // 6️⃣ ALWAYS clear Redis lock (even if generation failed)
-        await redisService.clearBuilding(prayerId, voiceId);
-        console.log(`🔓 [AudioGeneration] Lock released`);
-      }
+      // ── 5. Convert + upload to S3 ────────────────────────────────────────
+      const audioBuffer = Buffer.from(ttsResponse.audioData, 'base64');
+      console.log(`📦 [AudioGeneration] Converted to buffer: ${audioBuffer.length} bytes`);
+
+      const s3UploadStartedAt = new Date();
+
+      // Stamp S3 start before the call so a hung upload is visible in the DB
+      await db.query(
+        `UPDATE tts_generations
+         SET s3_upload_started_at = $1
+         WHERE id = $2`,
+        [s3UploadStartedAt, ttsGenerationId]
+      );
+
+      console.log(`☁️ [AudioGeneration] Uploading to S3...`);
+      
+      const { s3Key, s3Url } = await S3Service.uploadAudio(
+        prayerId,
+        voiceId,
+        audioBuffer,
+        {
+          provider: ttsResponse.provider,
+          characterCount: ttsResponse.metadata.characterCount
+        }
+      );
+
+      const s3UploadCompletedAt = new Date();
+
+      console.log(`✅ [AudioGeneration] Uploaded to S3`);
+      console.log(`   Key: ${s3Key}`);
+      console.log(`   URL: ${s3Url}`);
+
+      // ── 6. Stamp S3 completion + file size ──────────────────────────────
+      // Trigger calculates s3_upload_time_ms and total_time_ms here.
+      await db.query(
+        `UPDATE tts_generations
+         SET s3_upload_completed_at = $1,
+             file_size_bytes = $2,
+             success = true
+         WHERE id = $3`,
+        [s3UploadCompletedAt, audioBuffer.length, ttsGenerationId]
+      );
+      
+      // ── 7. Save audio_files record ───────────────────────────────────────
+      console.log(`💾 [AudioGeneration] Saving to database...`);
+      
+      await AudioService.saveAudioFile({
+        prayerId,
+        voiceId,
+        s3Bucket: S3Service.getBucketName(),
+        s3Key,
+        s3Url,
+        fileSizeBytes: audioBuffer.length,
+        provider: ttsResponse.provider
+      });
+      
+      const totalTime = Date.now() - startTime;
+      
+      console.log(`✅ [AudioGeneration] COMPLETE!`);
+      console.log(`   Total time: ${totalTime}ms`);
+      console.log(`   TTS: ${ttsResponse.metadata.responseTimeMs}ms`);
+      console.log(`   S3 + DB: ${totalTime - ttsResponse.metadata.responseTimeMs}ms`);
       
     } catch (error: any) {
       console.error(`❌ [AudioGeneration] Generation failed:`, error);
-      
-      // Make sure lock is cleared on error
+
+      // Parse error code from message convention used throughout the codebase
+      // e.g. "API_ERROR: ...", "INVALID_TIER: ...", "ALREADY_BUILDING: ..."
+      const errorCode = error.message?.split(':')[0]?.trim() ?? 'UNKNOWN_ERROR';
+      const errorMessage = error.message ?? String(error);
+
+      // Mark the generation as failed with structured error info
       try {
-        await redisService.clearBuilding(prayerId, voiceId);
-        console.log(`🔓 [AudioGeneration] Lock released after error`);
-      } catch (cleanupError) {
-        console.error(`❌ [AudioGeneration] Failed to release lock:`, cleanupError);
+        await db.query(
+          `UPDATE tts_generations
+           SET success = false,
+               error_code = $1,
+               error_message = $2
+           WHERE id = $3`,
+          [errorCode, errorMessage, ttsGenerationId]
+        );
+        console.log(`📝 [AudioGeneration] Failure recorded in tts_generations`);
+      } catch (dbError) {
+        // Don't let a logging failure mask the real error
+        console.error(`❌ [AudioGeneration] Failed to record failure in DB:`, dbError);
       }
-      
+
       throw error;
+
+    } finally {
+      // ALWAYS release Redis lock, regardless of success or failure
+      await redisService.clearBuilding(prayerId, voiceId);
+      console.log(`🔓 [AudioGeneration] Lock released`);
     }
   }
   
   /**
-   * Generate audio in the background (fire and forget)
-   * 
-   * Use this when you want to return 202 Accepted immediately
-   * and let generation happen asynchronously
-   * 
-   * @param prayerId - Prayer UUID
-   * @param text - Prayer text
-   * @param voiceId - Voice identifier
-   * @param userId - User UUID
+   * Generate audio in the background (fire and forget).
+   * Returns immediately with 202 Accepted while generation runs async.
    */
   public static generateInBackground(
     prayerId: string,
@@ -317,18 +375,12 @@ export class AudioService {
     voiceId: string,
     userId: string
   ): void {
-    
-    // Fire and forget - don't await
     this.generateAndStore(prayerId, text, voiceId, userId)
       .then(() => {
         console.log(`🎉 [AudioGeneration] Background generation succeeded`);
       })
       .catch((error) => {
         console.error(`❌ [AudioGeneration] Background generation failed:`, error);
-        // In production, you might want to:
-        // - Send to error tracking (Sentry, etc.)
-        // - Retry with exponential backoff
-        // - Notify user of failure
       });
   }
 }

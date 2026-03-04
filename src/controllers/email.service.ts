@@ -535,10 +535,15 @@ export class EmailService {
       Total Storage: ${formatBytes(audio.totalStorageBytes)}
       Total Duration: ${formatDuration(audio.totalDurationSeconds)}
 
+      Generations (24h): ${audio.generationsLast24h.total} total · ${audio.generationsLast24h.succeeded} ok · ${audio.generationsLast24h.failed} failed${audio.generationsLast24h.zombies > 0 ? ` · ⚠️ ${audio.generationsLast24h.zombies} zombies` : ''}
+      Est. Cost (24h): $${audio.costLast24h.toFixed(4)}
+      ${audio.performance.map((p: any) => `  ${p.provider}: avg ${p.avgTtsMs ?? '?'}ms TTS, p95 ${p.p95TtsMs ?? '?'}ms, avg ${p.avgS3Ms ?? '?'}ms S3`).join('\n')}
+      ${audio.slowestGenerationLast24h ? `Slowest: ${audio.slowestGenerationLast24h.totalMs}ms on ${audio.slowestGenerationLast24h.provider} (${audio.slowestGenerationLast24h.characterCount} chars)${audio.slowestGenerationLast24h.errorCode ? ` [${audio.slowestGenerationLast24h.errorCode}]` : ''}` : ''}
+
       📋 MISC
       Denominations: ${Object.entries(misc.denominationBreakdown).map(([k, v]) => `${k}: ${v}`).join(', ')}
       Password Resets (24h): ${misc.passwordResetsLast24h}
-      Templates: ${misc.prayOnItTemplates.active} active, ${misc.prayOnItTemplates.inactive} inactive
+      📿 Pray On It: ${misc.prayOnItStats.total} total · +${misc.prayOnItStats.newLast24h} today · avg ${misc.prayOnItStats.avgPerUser}/user
       Top Users: ${misc.topUsers.map((u: any) => `${u.name} (${u.prayer_count} prayers, ${u.play_count} plays)`).join('; ')}
 
       Generated at: ${stats.generatedAt}
@@ -718,7 +723,8 @@ export class EmailService {
               <!-- ========== AUDIO / TTS ========== -->
               <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
                 <h2 style="margin:0 0 16px;font-size:16px;color:#1f2937;">🔊 Audio / TTS</h2>
-                
+
+                <!-- S3 Storage summary (unchanged) -->
                 <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
                   <div style="flex:1;min-width:100px;background:#fff7ed;border-radius:8px;padding:12px 16px;text-align:center;">
                     <div style="font-size:24px;font-weight:700;color:#ea580c;">${audio.totalAudioFiles}</div>
@@ -738,7 +744,77 @@ export class EmailService {
                   </div>
                 </div>
 
-                <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">By Provider</div>
+                <!-- TTS Generation outcomes (new) -->
+                <div style="margin-bottom:16px;">
+                  <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Generation Attempts (24h)</div>
+                  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:80px;background:#f0fdf4;border-radius:6px;padding:10px 12px;text-align:center;">
+                      <div style="font-size:20px;font-weight:700;color:#16a34a;">${audio.generationsLast24h.succeeded}</div>
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Succeeded</div>
+                    </div>
+                    <div style="flex:1;min-width:80px;background:#fef2f2;border-radius:6px;padding:10px 12px;text-align:center;">
+                      <div style="font-size:20px;font-weight:700;color:#dc2626;">${audio.generationsLast24h.failed}</div>
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Failed</div>
+                    </div>
+                    ${audio.generationsLast24h.zombies > 0 ? `
+                    <div style="flex:1;min-width:80px;background:#fefce8;border-radius:6px;padding:10px 12px;text-align:center;border:1px solid #fde047;">
+                      <div style="font-size:20px;font-weight:700;color:#ca8a04;">${audio.generationsLast24h.zombies}</div>
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">⚠️ Zombies</div>
+                    </div>` : ''}
+                    <div style="flex:1;min-width:80px;background:#f3f4f6;border-radius:6px;padding:10px 12px;text-align:center;">
+                      <div style="font-size:20px;font-weight:700;color:#374151;">$${audio.costLast24h.toFixed(4)}</div>
+                      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Est. Cost</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Provider performance table (new) -->
+                ${audio.performance.length > 0 ? `
+                <div style="margin-bottom:16px;">
+                  <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Provider Performance (successful, 24h)</div>
+                  <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead>
+                      <tr style="background:#f9fafb;">
+                        <th style="padding:6px 10px;text-align:left;color:#6b7280;font-weight:600;">Provider</th>
+                        <th style="padding:6px 10px;text-align:right;color:#6b7280;font-weight:600;">Avg TTS</th>
+                        <th style="padding:6px 10px;text-align:right;color:#6b7280;font-weight:600;">p95 TTS</th>
+                        <th style="padding:6px 10px;text-align:right;color:#6b7280;font-weight:600;">Avg S3</th>
+                        <th style="padding:6px 10px;text-align:right;color:#6b7280;font-weight:600;">Avg Chars</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${audio.performance.map((p: any) => `
+                      <tr>
+                        <td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;font-weight:500;">${p.provider}</td>
+                        <td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;text-align:right;">${p.avgTtsMs != null ? p.avgTtsMs + 'ms' : '—'}</td>
+                        <td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;text-align:right;${p.p95TtsMs != null && p.p95TtsMs > 5000 ? 'color:#dc2626;font-weight:600;' : ''}">${p.p95TtsMs != null ? p.p95TtsMs + 'ms' : '—'}</td>
+                        <td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;text-align:right;">${p.avgS3Ms != null ? p.avgS3Ms + 'ms' : '—'}</td>
+                        <td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;text-align:right;">${p.avgCharacters ?? '—'}</td>
+                      </tr>`).join('')}
+                    </tbody>
+                  </table>
+                </div>` : ''}
+
+                <!-- Slowest generation callout (new) -->
+                ${audio.slowestGenerationLast24h ? `
+                <div style="margin-bottom:16px;padding:12px 16px;background:${audio.slowestGenerationLast24h.errorCode ? '#fef2f2' : '#fefce8'};border-radius:8px;border-left:3px solid ${audio.slowestGenerationLast24h.errorCode ? '#dc2626' : '#ca8a04'};">
+                  <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">🐢 Slowest Generation (24h)</div>
+                  <div style="font-size:13px;font-weight:600;color:#1f2937;">${audio.slowestGenerationLast24h.totalMs.toLocaleString()}ms · ${audio.slowestGenerationLast24h.provider} · ${audio.slowestGenerationLast24h.characterCount} chars</div>
+                  ${audio.slowestGenerationLast24h.voiceName ? `<div style="font-size:12px;color:#6b7280;">Voice: ${audio.slowestGenerationLast24h.voiceName}</div>` : ''}
+                  ${audio.slowestGenerationLast24h.errorCode ? `<div style="font-size:12px;color:#dc2626;">Error: ${audio.slowestGenerationLast24h.errorCode}</div>` : ''}
+                </div>` : ''}
+
+                <!-- Failures by provider (only shown if there were failures) -->
+                ${Object.keys(audio.failuresByProvider).length > 0 ? `
+                <div style="margin-bottom:16px;padding:12px 16px;background:#fef2f2;border-radius:8px;">
+                  <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">❌ Failures by Provider (24h)</div>
+                  ${Object.entries(audio.failuresByProvider).map(([provider, count]: [string, any]) =>
+                    `<span style="display:inline-block;padding:3px 10px;border-radius:10px;background:#fee2e2;color:#dc2626;font-size:12px;margin:2px 4px;font-weight:500;">${provider}: ${count}</span>`
+                  ).join('')}
+                </div>` : ''}
+
+                <!-- By Provider (S3 files, unchanged) -->
+                <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Files on S3 by Provider</div>
                 <table style="width:100%;border-collapse:collapse;">
                   <thead>
                     <tr style="background:#f9fafb;">
@@ -747,7 +823,11 @@ export class EmailService {
                     </tr>
                   </thead>
                   <tbody>
-                    ${providerRows}
+                    ${Object.entries(audio.byProvider).map(([provider, count]: [string, any]) => `
+                    <tr>
+                      <td style="padding:4px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">${provider}</td>
+                      <td style="padding:4px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;">${count}</td>
+                    </tr>`).join('')}
                   </tbody>
                 </table>
               </div>
@@ -788,7 +868,9 @@ export class EmailService {
                     🔑 Password Resets (24h): <strong>${misc.passwordResetsLast24h}</strong>
                   </div>
                   <div style="padding:8px 16px;background:#f3f4f6;border-radius:6px;font-size:13px;">
-                    📝 Templates: <strong>${misc.prayOnItTemplates.active}</strong> active / <strong>${misc.prayOnItTemplates.inactive}</strong> inactive
+                    📿 Pray On It Items: <strong>${misc.prayOnItStats.total.toLocaleString()}</strong>
+                    &nbsp;·&nbsp; +${misc.prayOnItStats.newLast24h} today
+                    &nbsp;·&nbsp; avg ${misc.prayOnItStats.avgPerUser}/user
                   </div>
                 </div>
               </div>
