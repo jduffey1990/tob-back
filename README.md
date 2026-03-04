@@ -886,7 +886,7 @@ terraform plan
 terraform apply
 ```
 
----
+-----
 
 ## 🔒 Environment Variables
 
