@@ -12,6 +12,24 @@ import { PostgresService } from './postgres.service';
 // ============================================
 
 export class TTSService {
+
+  // Simple retry helper
+  private static async callWithRetry<T>(
+    fn: () => Promise<T>,
+    retries: number = 1,
+    delayMs: number = 2000
+  ): Promise<T> {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (retries > 0 && (error.code === 'ECONNRESET' || error.message?.includes('socket hang up'))) {
+        console.log(`🔄 [TTSService] Retrying after ${delayMs}ms (${retries} retries left)`);
+        await new Promise(r => setTimeout(r, delayMs));
+        return this.callWithRetry(fn, retries - 1, delayMs);
+      }
+      throw error;
+    }
+  }
   
   /**
    * Main entry point: Generate audio for a prayer
@@ -192,14 +210,18 @@ export class TTSService {
       
       // Call Fish Audio API
       // NOTE: Model goes in HEADER, not body!
-      const response = await axios.post(url, requestBody, {
-        headers: {
-          'Authorization': `Bearer ${fishAudioKey}`,
-          'Content-Type': 'application/json',
-          'model': 's1'  // OpenAudio S1 - best quality
-        },
-        responseType: 'arraybuffer'
-      });
+      const response = await this.callWithRetry(() =>
+          axios.post(url, requestBody, {
+          headers: {
+            'Authorization': `Bearer ${fishAudioKey}`,
+            'Content-Type': 'application/json',
+            'model': 's1'
+          },
+          responseType: 'arraybuffer',
+          timeout: 55000  // 55 seconds - fail before Lambda times out
+        })
+      );
+
       
       // Convert binary audio to base64
       const audioData = Buffer.from(response.data).toString('base64');
