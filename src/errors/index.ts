@@ -2,7 +2,7 @@
 // Barrel export — import everything from one place:
 //   import { NotFoundError, LimitReachedError, handleRouteError } from '../errors';
 
-export { 
+export {
   AppError,
   ValidationError,
   LimitReachedError,
@@ -10,6 +10,7 @@ export {
   ExternalServiceError,
   UnauthorizedError,
   ConflictError,
+  ForbiddenError,
   RateLimitError,
 } from './AppErrors';
 

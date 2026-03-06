@@ -120,7 +120,7 @@ export const prayerRoutes: ServerRoute[] = [
             console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
             AudioService.generateInBackground(
               newPrayer.id,
-              payload.text.trim(),
+              text,
               currentVoice.id,
               authUser.id
             );

@@ -121,6 +121,26 @@ export class ConflictError extends AppError {
 }
 
 // ============================================
+// 403 - Forbidden (tier/feature gating)
+// ============================================
+// Used by: playlist routes (requires prayer_warrior or lifetime tier)
+// iOS client checks for: { error, upgradeRequired: true }
+export class ForbiddenError extends AppError {
+  public readonly upgradeRequired: boolean;
+
+  constructor(message: string, upgradeRequired = false) {
+    super(message, 403);
+    this.upgradeRequired = upgradeRequired;
+  }
+
+  toResponse() {
+    return this.upgradeRequired
+      ? { error: this.message, upgradeRequired: true }
+      : { error: this.message };
+  }
+}
+
+// ============================================
 // 429 - Too Many Requests (rate limiting)
 // ============================================
 // Will be used by the rate limiting plugin (Step 4)

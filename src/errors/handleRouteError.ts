@@ -14,14 +14,15 @@
 //   }
 
 import { ResponseToolkit } from '@hapi/hapi';
-import { 
-  AppError, 
-  LimitReachedError, 
-  NotFoundError, 
-  ExternalServiceError, 
+import {
+  AppError,
+  LimitReachedError,
+  NotFoundError,
+  ExternalServiceError,
   ValidationError,
   UnauthorizedError,
   ConflictError,
+  ForbiddenError,
   RateLimitError
 } from './AppErrors';
 
@@ -50,6 +51,10 @@ export function handleRouteError(error: unknown, h: ResponseToolkit) {
 
   if (error instanceof ConflictError) {
     return h.response({ error: error.message }).code(error.statusCode);
+  }
+
+  if (error instanceof ForbiddenError) {
+    return h.response(error.toResponse()).code(error.statusCode);
   }
 
   if (error instanceof RateLimitError) {

@@ -1,5 +1,6 @@
 // src/routes/denominationRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 
 /**
  * Master list of religious denominations
@@ -19,18 +20,18 @@ const DENOMINATIONS = [
   'Protestant',
   'Latter-day Saints (Mormon)',
   'Seventh-day Adventist',
-  
+
   // Judaism
   'Orthodox Judaism',
   'Conservative Judaism',
   'Reform Judaism',
   'Reconstructionist Judaism',
-  
+
   // Islam
   'Sunni Islam',
   'Shia Islam',
   'Sufi',
-  
+
   // Eastern Religions
   'Buddhism - Theravada',
   'Buddhism - Mahayana',
@@ -38,7 +39,7 @@ const DENOMINATIONS = [
   'Hinduism',
   'Sikhism',
   'Taoism',
-  
+
   // Other
   "Bahá'í Faith",
   'Unitarian Universalist',
@@ -63,7 +64,11 @@ export const denominationRoutes: ServerRoute[] = [
       }).code(200);
     },
     options: {
-      auth: false, // Public endpoint - accessible without login
+      auth: false, // Public endpoint
+      validate: {
+        query: Joi.object({}).optional(),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Get list of religious denominations for signup/settings picker',
       tags: ['api', 'denominations']
     }
