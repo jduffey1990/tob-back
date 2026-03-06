@@ -118,6 +118,8 @@ resource "aws_lambda_function" "tts_worker" {
   runtime       = var.lambda_runtime
   handler       = "dist/app.handler"
   role          = aws_iam_role.lambda_execution.arn
+  reserved_concurrent_executions = 20
+
 
   filename         = "${path.module}/placeholder.zip"
   source_code_hash = filebase64sha256("${path.module}/placeholder.zip")
@@ -139,7 +141,6 @@ resource "aws_lambda_event_source_mapping" "tts_trigger" {
   event_source_arn                   = aws_sqs_queue.tts_generation.arn
   function_name                      = aws_lambda_function.tts_worker.arn
   batch_size                         = 1
-  maximum_concurrency                = 20  # Don't overwhelm Fish Audio
   function_response_types            = ["ReportBatchItemFailures"]
 }
 
@@ -160,6 +161,28 @@ resource "aws_iam_policy" "lambda_sqs_send" {
 resource "aws_iam_role_policy_attachment" "lambda_sqs_attach" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = aws_iam_policy.lambda_sqs_send.arn
+}
+
+resource "aws_iam_policy" "lambda_sqs_receive" {
+  name = "${var.service_name}-sqs-receive"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ]
+      Resource = aws_sqs_queue.tts_generation.arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sqs_receive_attach" {
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = aws_iam_policy.lambda_sqs_receive.arn
 }
 
 
