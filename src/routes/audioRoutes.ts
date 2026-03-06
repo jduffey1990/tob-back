@@ -2,6 +2,7 @@
 // Audio routes for TTS state management and generation
 
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import { AudioService } from '../controllers/audioService';
 import type { UserSafe } from '../models/user';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
@@ -19,14 +20,7 @@ export const audioRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         const { id: prayerId } = request.params;
-        const { voiceId } = request.query as { voiceId?: string };
-        
-        // Validate voiceId is provided
-        if (!voiceId) {
-          return h.response({
-            error: 'voiceId query parameter is required'
-          }).code(400);
-        }
+        const { voiceId } = request.query as { voiceId: string };
         
         // Verify user owns this prayer
         const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
@@ -52,6 +46,15 @@ export const audioRoutes: ServerRoute[] = [
     },
     options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        query: Joi.object({
+          voiceId: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Get audio state for a prayer with specific voice',
       notes: 'Returns BUILDING, READY, or MISSING state',
       tags: ['api', 'audio', 'prayers']
@@ -70,13 +73,6 @@ export const audioRoutes: ServerRoute[] = [
         const authUser = request.auth.credentials as UserSafe;
         const { id: prayerId } = request.params;
         const payload = request.payload as { voiceId: string };
-        
-        // Validate payload
-        if (!payload.voiceId) {
-          return h.response({
-            error: 'voiceId is required'
-          }).code(400);
-        }
         
         console.log("here is id", prayerId)
         // Verify user owns this prayer
@@ -171,6 +167,15 @@ export const audioRoutes: ServerRoute[] = [
     },
     options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          voiceId: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Generate TTS audio for a prayer asynchronously',
       notes: 'Returns 202 if queued, 200 if already exists',
       tags: ['api', 'audio', 'prayers']

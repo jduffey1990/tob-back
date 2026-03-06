@@ -8,8 +8,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.loginRoutes = exports.homeRoutes = void 0;
+const joi_1 = __importDefault(require("joi"));
 const authService_1 = require("../controllers/authService");
 exports.homeRoutes = [
     {
@@ -55,6 +59,15 @@ exports.loginRoutes = [
                 throw error;
             }
         }),
-        options: { auth: false }
+        options: {
+            auth: false,
+            validate: {
+                payload: joi_1.default.object({
+                    email: joi_1.default.string().email().required(),
+                    password: joi_1.default.string().required(),
+                }),
+                failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),
+            },
+        },
     },
 ];

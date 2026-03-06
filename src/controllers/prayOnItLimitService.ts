@@ -1,6 +1,7 @@
 // src/controllers/prayOnItLimitService.ts
 import { PrayOnItService } from './prayOnItService';
 import { UserService } from './userService';
+import { LimitReachedError, NotFoundError } from '../errors';
 
 /**
  * Tier limits for Pray On It items
@@ -20,7 +21,7 @@ export class PrayOnItLimitService {
   public static async checkCanCreateItem(userId: string): Promise<void> {
     const user = await UserService.findUserById(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundError('User');
     }
     
     const tier = user.subscriptionTier || 'free';
@@ -36,15 +37,15 @@ export class PrayOnItLimitService {
     
     if (currentCount >= limit) {
       if (tier === 'free') {
-        throw new Error(
-          `Pray On It item limit reached. Upgrade to Pro for ${TIER_LIMITS.pro} items!`
-        );
+        throw new LimitReachedError(
+        `Pray On It item limit reached. Upgrade to Pro for ${TIER_LIMITS.pro} items!`
+      );
       } else if (tier === 'pro') {
-        throw new Error(
+        throw new LimitReachedError(
           `Pray On It item limit reached. Upgrade to Prayer Warrior for ${TIER_LIMITS.prayer_warrior} items!`
         );
       } else {
-        throw new Error('Pray On It item limit reached.');
+        throw new LimitReachedError('Pray On It item limit reached.');
       }
     }
   }

@@ -9,6 +9,8 @@ const prayOnItRoutes_1 = require("./prayOnItRoutes");
 const ttsRoutes_1 = require("./ttsRoutes");
 const redisRoutes_1 = require("./redisRoutes");
 const audioRoutes_1 = require("./audioRoutes");
+const passwordResetRoutes_1 = require("./passwordResetRoutes");
+const denominationRoutes_1 = require("./denominationRoutes");
 exports.default = [
     ...userRoutes_1.userRoutes,
     ...loginRoutes_1.homeRoutes,
@@ -18,5 +20,7 @@ exports.default = [
     ...prayOnItRoutes_1.prayOnItRoutes,
     ...ttsRoutes_1.ttsRoutes,
     ...redisRoutes_1.redisRoutes,
-    ...audioRoutes_1.audioRoutes
+    ...audioRoutes_1.audioRoutes,
+    ...passwordResetRoutes_1.passwordResetRoutes,
+    ...denominationRoutes_1.denominationRoutes
 ];

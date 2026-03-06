@@ -8,6 +8,8 @@ import {
 } from '../models/aiItems';
 import { PostgresService } from './postgres.service';
 import { UserService } from './userService'; // NEW: Import UserService
+import { LimitReachedError, ExternalServiceError } from '../errors';
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -37,7 +39,7 @@ export class AIService {
     // 1. Check if user can generate (within tier limits)
     const canGenerate = await this.checkCanGenerate(userId);
     if (!canGenerate.allowed) {
-      throw new Error(`LIMIT_REACHED: ${canGenerate.message}`);
+      throw new LimitReachedError(canGenerate.message);
     }
     
     // 2. Create database record with request (created_at = now)
@@ -93,7 +95,6 @@ export class AIService {
     } catch (error: any) {
       console.error(`❌ [AIService] Generation failed:`, error);
       
-      // Log error but keep the failed generation record
       await db.query(`
         UPDATE ai_generations
         SET 
@@ -104,7 +105,7 @@ export class AIService {
         JSON.stringify({ 
           success: false, 
           error: error.message,
-          code: error.message.includes('LIMIT_REACHED') ? 'LIMIT_REACHED' : 'AI_ERROR'
+          code: error instanceof ExternalServiceError ? 'AI_ERROR' : 'SERVER_ERROR'
         }),
         generationId
       ]);
@@ -198,10 +199,7 @@ export class AIService {
         return completion as OpenAIResponse;
         
     } catch (error: any) {
-        console.error(`❌ [AIService] OpenAI API error:`, error);
-        console.error(`   Error type: ${error.constructor.name}`);
-        console.error(`   Error message: ${error.message}`);
-        throw new Error(`AI_ERROR: ${error.message}`);
+        throw new ExternalServiceError('AI service', error.message);
     }
   }
   
@@ -461,7 +459,7 @@ export class AIService {
    */
   static async checkCanGenerate(userId: string): Promise<{
     allowed: boolean;
-    message?: string;
+    message: string;
     current: number;
     limit: number | null;
     period: 'daily' | 'monthly';
@@ -543,6 +541,7 @@ export class AIService {
     
     return {
       allowed: true,
+      message:'',
       current: currentCount,
       limit: config.limit,
       period: config.period

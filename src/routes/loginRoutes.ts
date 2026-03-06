@@ -1,5 +1,6 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
-import { AuthService } from '../controllers/authService'; 
+import Joi from 'joi';
+import { AuthService } from '../controllers/authService';
 
 export const homeRoutes : ServerRoute [] = [
     {
@@ -59,7 +60,16 @@ export const loginRoutes: ServerRoute [] = [
         throw error; 
       }
     },
-    options: { auth: false }
+    options: {
+      auth: false,
+      validate: {
+        payload: Joi.object({
+          email: Joi.string().email().required(),
+          password: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 ];
 

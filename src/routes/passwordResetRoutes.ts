@@ -1,5 +1,6 @@
 // src/routes/passwordResetRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import bcrypt from 'bcrypt';
 import { EmailService } from '../controllers/email.service';
 import { passwordResetTokenService } from '../controllers/passwordResetServcie';
@@ -14,19 +15,7 @@ export const passwordResetRoutes: ServerRoute[] = [
     path: '/request-password-reset',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
-        const payload = request.payload as any;
-        const { email } = payload;
-
-        // Validation
-        if (!email) {
-          return h.response({ error: 'Email is required' }).code(400);
-        }
-
-        // Basic email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-          return h.response({ error: 'Invalid email address' }).code(400);
-        }
+        const { email } = request.payload as { email: string };
 
         // Find user by email
         const userData = await UserService.findUserByEmail(email);
@@ -75,7 +64,15 @@ export const passwordResetRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { auth: false },
+    options: {
+      auth: false,
+      validate: {
+        payload: Joi.object({
+          email: Joi.string().email().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 
   // ===== RESET PASSWORD WITH TOKEN =====
@@ -84,22 +81,7 @@ export const passwordResetRoutes: ServerRoute[] = [
     path: '/reset-password',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
-        const payload = request.payload as any;
-        const { token, newPassword } = payload;
-
-        // Validation
-        if (!token || !newPassword) {
-          return h.response({ 
-            error: 'Token and new password are required' 
-          }).code(400);
-        }
-
-        // Validate password strength (minimum 6 characters)
-        if (newPassword.length < 6) {
-          return h.response({ 
-            error: 'Password must be at least 6 characters long' 
-          }).code(400);
-        }
+        const { token, newPassword } = request.payload as { token: string; newPassword: string };
 
         // Validate token
         const tokenData = await passwordResetTokenService.validateToken(token);
@@ -131,9 +113,16 @@ export const passwordResetRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: false,
-      cors: true 
+      cors: true,
+      validate: {
+        payload: Joi.object({
+          token: Joi.string().required(),
+          newPassword: Joi.string().min(6).required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
     },
   },
 
@@ -144,12 +133,6 @@ export const passwordResetRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const { token } = request.params;
-
-        if (!token) {
-          return h.response({ 
-            error: 'Token is required' 
-          }).code(400);
-        }
 
         // Validate token
         const tokenData = await passwordResetTokenService.validateToken(token);
@@ -174,9 +157,15 @@ export const passwordResetRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: false,
-      cors: true
-     },
+      cors: true,
+      validate: {
+        params: Joi.object({
+          token: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 ];

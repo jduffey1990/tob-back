@@ -6,6 +6,7 @@ import {
   VoiceOption
 } from '../models/ttsItems';
 import { PostgresService } from './postgres.service';
+import {NotFoundError, ValidationError, ExternalServiceError, LimitReachedError} from '../errors/AppErrors'
 
 // ============================================
 // TTS Service - With Fish Audio WebSocket Streaming
@@ -37,10 +38,6 @@ export class TTSService {
   static async generateAudio(request: TTSRequest): Promise<TTSResponse> {
     const db = PostgresService.getInstance();
     
-    console.log(`🎙️ [TTSService] Generating audio for prayer ${request.prayerId}`);
-    console.log(`   Voice: ${request.voiceId}`);
-    console.log(`   Text length: ${request.text.length} characters`);
-    
     // 1. Get user's subscription tier
     const userResult = await db.query(
       'SELECT subscription_tier FROM users WHERE id = $1',
@@ -48,7 +45,7 @@ export class TTSService {
     );
     
     if (userResult.rows.length === 0) {
-      throw new Error('User not found');
+      throw new NotFoundError('User');
     }
     
     const tier = userResult.rows[0].subscription_tier;
@@ -57,11 +54,11 @@ export class TTSService {
     // 2. Validate voice is allowed for this tier
     const voice = this.getVoiceById(request.voiceId);
     if (!voice) {
-      throw new Error(`INVALID_VOICE: Voice ${request.voiceId} not found`);
+      throw new ValidationError(`Voice ${request.voiceId} not found`);
     }
     
     if (!this.canUserUseVoice(tier, voice)) {
-      throw new Error(`INVALID_TIER: Voice ${voice.name} requires ${voice.tier} tier or higher`);
+      throw new LimitReachedError(`Voice ${voice.name} requires ${voice.tier} tier or higher`);
     }
     
     // 3. Generate audio based on provider
@@ -89,10 +86,6 @@ export class TTSService {
       }
       
       const responseTime = Date.now() - startTime;
-      
-      console.log(`✅ [TTSService] Audio generated in ${responseTime}ms`);
-      console.log(`   Characters: ${request.text.length}`);
-      console.log(`   Estimated cost: $${estimatedCost.toFixed(4)}`);
       
       // 4. Build response
       const response: TTSResponse = {
@@ -129,7 +122,7 @@ export class TTSService {
     const azureRegion = process.env.AZURE_TTS_REGION || 'eastus';
     
     if (!azureKey) {
-      throw new Error('Azure TTS API key not configured');
+      throw new ExternalServiceError('Azure TTS', 'API key not configured');
     }
     
     console.log(`🔵 [TTSService] Calling Azure TTS...`);
@@ -161,14 +154,10 @@ export class TTSService {
       const audioData = Buffer.from(response.data).toString('base64');
       const estimatedCost = (text.length / 1_000_000) * 10;
       
-      console.log(`✅ [TTSService] Azure TTS successful`);
-      console.log(`   Audio size: ${audioData.length} bytes (base64)`);
-      
       return { audioData, estimatedCost };
       
     } catch (error: any) {
-      console.error(`❌ [TTSService] Azure API error:`, error.response?.data || error.message);
-      throw new Error(`API_ERROR: ${error.message}`);
+      throw new ExternalServiceError('Azure TTS', error.message);
     }
   }
   
@@ -184,13 +173,8 @@ export class TTSService {
     const fishAudioKey = process.env.FISH_API_KEY;
     
     if (!fishAudioKey) {
-      throw new Error('Fish Audio API key not configured');
+      throw new ExternalServiceError('Fish Audio', 'API key not configured');
     }
-    
-    console.log(`🐟 [TTSService] Calling Fish Audio REST API (OLD METHOD)...`);
-    console.log(`⚠️  Consider using streaming for better performance!`);
-    console.log(`   Voice: ${voice.id} (${voice.name})`);
-    console.log(`   Model: s1 (OpenAudio)`);
     
     try {
       const url = 'https://api.fish.audio/v1/tts';
@@ -205,8 +189,6 @@ export class TTSService {
       if (voice.id && voice.id !== 'default') {
         requestBody.reference_id = voice.id;
       }
-      
-      console.log(`   Request:`, JSON.stringify(requestBody, null, 2));
       
       // Call Fish Audio API
       // NOTE: Model goes in HEADER, not body!
@@ -229,26 +211,13 @@ export class TTSService {
       // Fish Audio pricing: ~$10 per 1M characters (estimate)
       const estimatedCost = (text.length / 1_000_000) * 10;
       
-      console.log(`✅ [TTSService] Fish Audio TTS successful`);
-      console.log(`   Audio size: ${audioData.length} bytes (base64)`);
-      console.log(`   Estimated cost: $${estimatedCost.toFixed(4)}`);
-      
       return { audioData, estimatedCost };
       
     } catch (error: any) {
-      console.error(`❌ [TTSService] Fish Audio API error:`, {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data ? Buffer.from(error.response.data).toString('utf-8') : null,
-        message: error.message
-      });
-      
-      // Handle specific errors
       if (error.response?.status === 402) {
-        throw new Error('API_ERROR: Insufficient balance in Fish Audio account');
+        throw new ExternalServiceError('Fish Audio', 'Insufficient balance in Fish Audio account');
       }
-      
-      throw new Error(`API_ERROR: ${error.message}`);
+      throw new ExternalServiceError('Fish Audio', error.message);
     }
   }
   

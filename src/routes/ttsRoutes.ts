@@ -1,5 +1,6 @@
 // src/routes/ttsRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import { TTSService } from '../controllers/ttsService';
 import type { UserSafe } from '../models/user';
 import { UserService } from '../controllers/userService';
@@ -147,6 +148,12 @@ export const ttsRoutes: ServerRoute[] = [
     },
     options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          voiceId: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Get preview information for a specific voice',
       tags: ['api', 'tts', 'voices']
     }
