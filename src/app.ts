@@ -226,6 +226,8 @@ export const handler = async (event: any, context: any) => {
   
   const dbService = PostgresService.getInstance();
   await dbService.connect({ max: 1, connectionTimeoutMillis: 5000 });
+
+  S3Service.initialize(); 
   
   await AudioService.generateAndStore(
     body.prayerId, body.text, body.voiceId, body.userId
