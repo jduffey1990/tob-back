@@ -1,8 +1,10 @@
 // src/routes/prayOnItRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import { PrayOnItService } from '../controllers/prayOnItService';
 import { PrayOnItLimitService } from '../controllers/prayOnItLimitService';
 import type { UserSafe } from '../models/user';
+import { PRAY_ON_IT_CATEGORIES } from '../models/prayOnItItem';
 
 export const prayOnItRoutes: ServerRoute[] = [
   // ============================================
@@ -55,8 +57,14 @@ export const prayOnItRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Get a single Pray On It item by ID',
       tags: ['api', 'pray-on-it']
     }
@@ -78,48 +86,7 @@ export const prayOnItRoutes: ServerRoute[] = [
           prayerFocus?: string;
           notes?: string;
         };
-        
-        // Validate required fields
-        if (!payload.name || !payload.category) {
-          return h.response({ 
-            error: 'name and category are required' 
-          }).code(400);
-        }
-        
-        // Validate name length
-        if (payload.name.length > 255) {
-          return h.response({ 
-            error: 'name must be 255 characters or less' 
-          }).code(400);
-        }
-        
-        // Validate category
-        const validCategories = ['family', 'friends', 'work', 'health', 'personal', 'world', 'other'];
-        if (!validCategories.includes(payload.category)) {
-          return h.response({ 
-            error: `category must be one of: ${validCategories.join(', ')}` 
-          }).code(400);
-        }
-        
-        // Validate optional field lengths
-        if (payload.relationship && payload.relationship.length > 100) {
-          return h.response({ 
-            error: 'relationship must be 100 characters or less' 
-          }).code(400);
-        }
-        
-        if (payload.prayerFocus && payload.prayerFocus.length > 100) {
-          return h.response({ 
-            error: 'prayerFocus must be 100 characters or less' 
-          }).code(400);
-        }
-        
-        if (payload.notes && payload.notes.length > 200) {
-          return h.response({ 
-            error: 'notes must be 200 characters or less' 
-          }).code(400);
-        }
-        
+
         // Check item limit BEFORE creating
         try {
           await PrayOnItLimitService.checkCanCreateItem(authUser.id);
@@ -147,8 +114,18 @@ export const prayOnItRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          name: Joi.string().required().max(255).trim(),
+          category: Joi.string().valid(...PRAY_ON_IT_CATEGORIES).required(),
+          relationship: Joi.string().optional().max(100).trim().allow('', null),
+          prayerFocus: Joi.string().optional().max(100).trim().allow('', null),
+          notes: Joi.string().optional().max(200).trim().allow('', null),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Create a new Pray On It item (checks tier limits)',
       tags: ['api', 'pray-on-it']
     }
@@ -171,52 +148,7 @@ export const prayOnItRoutes: ServerRoute[] = [
           prayerFocus?: string;
           notes?: string;
         };
-        
-        // Validate: at least one field to update
-        if (!payload.name && !payload.category && 
-            payload.relationship === undefined && 
-            payload.prayerFocus === undefined && 
-            payload.notes === undefined) {
-          return h.response({ 
-            error: 'At least one field (name, category, relationship, prayerFocus, or notes) is required' 
-          }).code(400);
-        }
-        
-        // Validate field lengths if provided
-        if (payload.name && payload.name.length > 255) {
-          return h.response({ 
-            error: 'name must be 255 characters or less' 
-          }).code(400);
-        }
-        
-        if (payload.relationship && payload.relationship.length > 100) {
-          return h.response({ 
-            error: 'relationship must be 100 characters or less' 
-          }).code(400);
-        }
-        
-        if (payload.prayerFocus && payload.prayerFocus.length > 100) {
-          return h.response({ 
-            error: 'prayerFocus must be 100 characters or less' 
-          }).code(400);
-        }
-        
-        if (payload.notes && payload.notes.length > 200) {
-          return h.response({ 
-            error: 'notes must be 200 characters or less' 
-          }).code(400);
-        }
-        
-        // Validate category if provided
-        if (payload.category) {
-          const validCategories = ['family', 'friends', 'work', 'health', 'personal', 'world', 'other'];
-          if (!validCategories.includes(payload.category)) {
-            return h.response({ 
-              error: `category must be one of: ${validCategories.join(', ')}` 
-            }).code(400);
-          }
-        }
-        
+
         // Build updates object (trim strings)
         const updates: any = {};
         if (payload.name !== undefined) updates.name = payload.name.trim();
@@ -238,8 +170,21 @@ export const prayOnItRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          name: Joi.string().optional().max(255).trim(),
+          category: Joi.string().valid(...PRAY_ON_IT_CATEGORIES).optional(),
+          relationship: Joi.string().optional().max(100).trim().allow('', null),
+          prayerFocus: Joi.string().optional().max(100).trim().allow('', null),
+          notes: Joi.string().optional().max(200).trim().allow('', null),
+        }).or('name', 'category', 'relationship', 'prayerFocus', 'notes'),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Update a Pray On It item (only owner can update)',
       tags: ['api', 'pray-on-it']
     }
@@ -272,8 +217,14 @@ export const prayOnItRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Delete a Pray On It item (soft delete)',
       tags: ['api', 'pray-on-it']
     }

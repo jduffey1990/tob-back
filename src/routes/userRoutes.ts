@@ -1,5 +1,6 @@
 // src/routes/users.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import axios from 'axios';
 import bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -80,19 +81,21 @@ export const userRoutes : ServerRoute[] = [
     method: 'GET',
     path: '/get-user',
     handler: async (request: Request, h: ResponseToolkit) => {
-      const id = request.query.id as string | undefined;
-      if (!id) return h.response('User ID is required').code(400);
-
-      // Optional: basic UUID sanity check
-      if (!/^[0-9a-fA-F-]{36}$/.test(id)) {
-        return h.response('Invalid user id format').code(400);
-      }
+      const id = request.query.id as string;
 
       const user = await UserService.findUserById(id);
       if (!user) return h.response({ error: 'User not found' }).code(404);
       return h.response(user).code(200);
     },
-    options: { auth: 'jwt' },
+    options: {
+      auth: 'jwt',
+      validate: {
+        query: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 
   // Update the authenticated user's name/email
@@ -180,14 +183,7 @@ export const userRoutes : ServerRoute[] = [
         const name =
           payload.name?.toString().trim() ||
           `${payload.firstName ?? ''} ${payload.lastName ?? ''}`.trim();
-        
-        // Validate required fields
-        if (!payload.email || !payload.password || !name) {
-          return h
-            .response({ error: 'email, password, and name are required' })
-            .code(400);
-        }
-        
+
         // Hash password (8 rounds is fine for bcrypt)
         const passwordHash = await bcrypt.hash(payload.password, 8);
         const denomination = payload.denomination?.toString().trim() || 'Christian';
@@ -232,7 +228,20 @@ export const userRoutes : ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { auth: false }
+    options: {
+      auth: false,
+      validate: {
+        payload: Joi.object({
+          email: Joi.string().email().required(),
+          password: Joi.string().required(),
+          name: Joi.string().optional().trim(),
+          firstName: Joi.string().optional().trim(),
+          lastName: Joi.string().optional().trim(),
+          denomination: Joi.string().optional().trim(),
+        }).or('name', 'firstName'),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 
 
@@ -267,8 +276,14 @@ export const userRoutes : ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
-      auth: false,  // Or require admin auth
+    options: {
+      auth: false,
+      validate: {
+        params: Joi.object({
+          userId: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       tags: ['api', 'users', 'dangerous'],
       description: '⚠️ DEV ONLY: Permanently delete user'
     },
@@ -286,15 +301,6 @@ export const userRoutes : ServerRoute[] = [
         }
 
         const payload = request.payload as Partial<UserSettings>;
-        
-        // Validate payload
-        if (payload.voiceIndex !== undefined && typeof payload.voiceIndex !== 'number') {
-          return h.response({ error: 'voiceIndex must be a number' }).code(400);
-        }
-        
-        if (payload.playbackRate !== undefined && typeof payload.playbackRate !== 'number') {
-          return h.response({ error: 'playbackRate must be a number' }).code(400);
-        }
 
         const updatedUser = await UserService.updateSettings(authUser.id, payload);
         
@@ -304,7 +310,16 @@ export const userRoutes : ServerRoute[] = [
         return h.response({ error: err.message || 'Failed to update settings' }).code(400);
       }
     },
-    options: { auth: 'jwt' },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          voiceIndex: Joi.number().integer().min(0).max(8).optional(),
+          playbackRate: Joi.number().min(0).max(1).optional(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+    },
   },
 
   // GET /users/me/settings - Get authenticated user's settings

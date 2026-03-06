@@ -31,6 +31,7 @@ function rowToUserSafe(row) {
         subscriptionTier: row.subscription_tier,
         subscriptionExpiresAt: (_a = row.subscription_expires_at) !== null && _a !== void 0 ? _a : null,
         settings: (_b = row.settings) !== null && _b !== void 0 ? _b : user_1.DEFAULT_USER_SETTINGS, // NEW!
+        denomination: row.denomination,
         deletedAt: (_c = row.deleted_at) !== null && _c !== void 0 ? _c : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -46,7 +47,7 @@ class AuthService {
             try {
                 // Load the user by email (case-insensitive), include password_hash for verification
                 const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-                settings, deleted_at, created_at, updated_at, password_hash
+                settings, denomination, deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`, [email]);
@@ -94,7 +95,7 @@ class AuthService {
                 return { isValid: false };
             const db = postgres_service_1.PostgresService.getInstance();
             const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              settings, deleted_at, created_at, updated_at
+              settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`, [userId]);

@@ -12,6 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PostgresService = void 0;
 // users/src/controllers/postgres.service.ts
 const pg_1 = require("pg");
+// Threshold in ms — any query slower than this gets a warning log
+const SLOW_QUERY_THRESHOLD_MS = 500;
 class PostgresService {
     constructor() {
         this.pool = null;
@@ -46,22 +48,63 @@ class PostgresService {
             };
         this.pool = new pg_1.Pool(Object.assign(Object.assign({}, base), config));
         this.pool.on('error', (err) => {
-            // This is important so the app doesn’t silently hang on idle client errors.
-            console.error('[Postgres pool error]', err);
+            console.error(JSON.stringify({
+                level: 'error',
+                type: 'db_pool_error',
+                message: err.message,
+                stack: err.stack,
+                timestamp: new Date().toISOString(),
+            }));
+        });
+        this.pool.on('connect', () => {
+            console.log(JSON.stringify({
+                level: 'info',
+                type: 'db_connection',
+                message: 'New pool client connected',
+                timestamp: new Date().toISOString(),
+            }));
         });
         return this.pool;
     }
     /**
      * Simple query helper for one-off queries.
-     * Ensure connect() was called during app bootstrap.
+     * Logs slow queries (> 500ms) with the SQL text for debugging.
      */
     query(text, params) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!this.pool)
                 throw new Error('PostgresService not connected. Call connect() first.');
             const start = Date.now();
-            const result = yield this.pool.query(text, params);
-            return result;
+            try {
+                const result = yield this.pool.query(text, params);
+                const duration_ms = Date.now() - start;
+                // Log slow queries so you catch missing indexes before they become outages
+                if (duration_ms > SLOW_QUERY_THRESHOLD_MS) {
+                    console.warn(JSON.stringify({
+                        level: 'warn',
+                        type: 'slow_query',
+                        duration_ms,
+                        rowCount: result.rowCount,
+                        // Log the parameterized SQL, NOT the actual param values (no PII leaks)
+                        query: text.substring(0, 200),
+                        timestamp: new Date().toISOString(),
+                    }));
+                }
+                return result;
+            }
+            catch (err) {
+                const duration_ms = Date.now() - start;
+                console.error(JSON.stringify({
+                    level: 'error',
+                    type: 'db_query_error',
+                    duration_ms,
+                    query: text.substring(0, 200),
+                    message: err.message,
+                    code: err.code, // Postgres error codes like '23505' (unique violation), '42P01' (undefined table)
+                    timestamp: new Date().toISOString(),
+                }));
+                throw err;
+            }
         });
     }
     /**
@@ -86,10 +129,20 @@ class PostgresService {
     runInTransaction(fn) {
         return __awaiter(this, void 0, void 0, function* () {
             const client = yield this.getClient();
+            const start = Date.now();
             try {
                 yield client.query('BEGIN');
                 const result = yield fn(client);
                 yield client.query('COMMIT');
+                const duration_ms = Date.now() - start;
+                if (duration_ms > SLOW_QUERY_THRESHOLD_MS) {
+                    console.warn(JSON.stringify({
+                        level: 'warn',
+                        type: 'slow_transaction',
+                        duration_ms,
+                        timestamp: new Date().toISOString(),
+                    }));
+                }
                 return result;
             }
             catch (err) {
@@ -97,7 +150,12 @@ class PostgresService {
                     yield client.query('ROLLBACK');
                 }
                 catch (rollbackErr) {
-                    console.error('[Postgres rollback error]', rollbackErr);
+                    console.error(JSON.stringify({
+                        level: 'error',
+                        type: 'db_rollback_error',
+                        message: rollbackErr.message,
+                        timestamp: new Date().toISOString(),
+                    }));
                 }
                 throw err;
             }

@@ -40,6 +40,7 @@ describe('UserService', () => {
                     deleted_at: null,
                     created_at: new Date('2024-01-01'),
                     updated_at: new Date('2024-01-01'),
+                    denomination: 'Christian'
                 },
                 {
                     id: '123e4567-e89b-12d3-a456-426614174002',
@@ -51,6 +52,7 @@ describe('UserService', () => {
                     deleted_at: null,
                     created_at: new Date('2024-01-02'),
                     updated_at: new Date('2024-01-02'),
+                    denomination: 'Christian'
                 },
             ];
             mockDb.query.mockResolvedValue({ rows: mockRows });
@@ -67,6 +69,7 @@ describe('UserService', () => {
                 deletedAt: null,
                 createdAt: mockRows[0].created_at,
                 updatedAt: mockRows[0].updated_at,
+                denomination: 'Christian'
             });
             expect(result[1].subscriptionTier).toBe('pro');
             expect(result[1].subscriptionExpiresAt).toEqual(new Date('2026-12-31'));
@@ -89,6 +92,7 @@ describe('UserService', () => {
                 deleted_at: null,
                 created_at: new Date('2024-01-01'),
                 updated_at: new Date('2024-01-01'),
+                denomination: 'Christian'
             };
             mockDb.query.mockResolvedValue({ rows: [mockRow] });
             const result = yield userService_1.UserService.findUserById('123e4567-e89b-12d3-a456-426614174000');
@@ -103,6 +107,7 @@ describe('UserService', () => {
                 deletedAt: null,
                 createdAt: mockRow.created_at,
                 updatedAt: mockRow.updated_at,
+                denomination: 'Christian'
             });
         }));
         it('should return null when user not found', () => __awaiter(void 0, void 0, void 0, function* () {
@@ -130,6 +135,7 @@ describe('UserService', () => {
                 name: 'New User',
                 passwordHash: 'hashed_password_123',
                 status: 'active',
+                denomination: 'Christian'
             });
             expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO users'), ['newuser@example.com', 'hashed_password_123', 'New User', 'active']);
             expect(result.email).toBe('newuser@example.com');
@@ -147,12 +153,14 @@ describe('UserService', () => {
                 deleted_at: null,
                 created_at: new Date('2024-01-01'),
                 updated_at: new Date('2024-01-01'),
+                denomination: 'Christian'
             };
             mockDb.query.mockResolvedValue({ rows: [mockRow] });
             const result = yield userService_1.UserService.createUser({
                 email: 'newuser@example.com',
                 name: 'New User',
                 passwordHash: 'hashed_password_123',
+                denomination: 'Christian'
             });
             expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO users'), ['newuser@example.com', 'hashed_password_123', 'New User', 'active']);
             expect(result.status).toBe('active');
@@ -166,6 +174,7 @@ describe('UserService', () => {
                 email: 'duplicate@example.com',
                 name: 'Duplicate User',
                 passwordHash: 'hashed_password_123',
+                denomination: 'Christian'
             })).rejects.toThrow('duplicate key value violates unique constraint');
         }));
         it('should rethrow other database errors', () => __awaiter(void 0, void 0, void 0, function* () {
@@ -175,6 +184,7 @@ describe('UserService', () => {
                 email: 'user@example.com',
                 name: 'User',
                 passwordHash: 'hashed_password_123',
+                denomination: 'Christian'
             })).rejects.toThrow('Database connection failed');
         }));
     });

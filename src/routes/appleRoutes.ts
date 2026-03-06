@@ -6,6 +6,7 @@
 //   POST /subscription/verify-purchase — iOS calls this after in-app purchase (JWT auth)
 
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import { AppleSubscriptionService } from '../controllers/appleSubscriptionService';
 import type { UserSafe } from '../models/user';
 
@@ -68,15 +69,11 @@ export const appleRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const payload  = request.payload as { signedTransaction?: string };
-
-        if (!payload?.signedTransaction) {
-          return h.response({ error: 'signedTransaction is required' }).code(400);
-        }
+        const { signedTransaction } = request.payload as { signedTransaction: string };
 
         const result = await AppleSubscriptionService.verifyPurchase(
           authUser.id,
-          payload.signedTransaction
+          signedTransaction
         );
 
         return h.response({
@@ -93,6 +90,12 @@ export const appleRoutes: ServerRoute[] = [
     },
     options: {
       auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          signedTransaction: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Verify StoreKit 2 purchase and update subscription tier',
       tags: ['api', 'apple', 'subscriptions']
     }

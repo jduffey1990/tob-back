@@ -1,5 +1,6 @@
 // src/routes/prayerRoutes.ts
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
 import { PrayerService } from '../controllers/prayerService';
 import { PrayerLimitService } from '../controllers/prayerLimitService';
 import { AIService } from '../controllers/aiService'
@@ -57,8 +58,14 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Get a single prayer by ID',
       tags: ['api', 'prayers']
     }
@@ -73,26 +80,12 @@ export const prayerRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const payload = request.payload as {
+        const { title, text, category } = request.payload as {
           title: string;
           text: string;
           category?: string;
         };
-        
-        // Validate required fields
-        if (!payload.title || !payload.text) {
-          return h.response({ 
-            error: 'title and text are required' 
-          }).code(400);
-        }
-        
-        // Validate title length
-        if (payload.title.length > 255) {
-          return h.response({ 
-            error: 'title must be 255 characters or less' 
-          }).code(400);
-        }
-        
+
         // Check prayer limit BEFORE creating
         try {
           await PrayerLimitService.checkCanCreatePrayer(authUser.id);
@@ -108,9 +101,9 @@ export const prayerRoutes: ServerRoute[] = [
         // Create the prayer
         const newPrayer = await PrayerService.createPrayer({
           userId: authUser.id,
-          title: payload.title.trim(),
-          text: payload.text.trim(),
-          category: payload.category?.trim() || undefined,
+          title: title.trim(),
+          text: text.trim(),
+          category: category?.trim() || undefined,
           isTemplate: false
         });
         
@@ -120,8 +113,16 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          title: Joi.string().required().max(255).trim(),
+          text: Joi.string().required().trim(),
+          category: Joi.string().optional().trim().allow('', null),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Create a new prayer (checks tier limits)',
       tags: ['api', 'prayers']
     }
@@ -142,21 +143,7 @@ export const prayerRoutes: ServerRoute[] = [
           text?: string;
           category?: string;
         };
-        
-        // Validate: at least one field to update
-        if (!payload.title && !payload.text && payload.category === undefined) {
-          return h.response({ 
-            error: 'At least one field (title, text, or category) is required' 
-          }).code(400);
-        }
-        
-        // Validate title length if provided
-        if (payload.title && payload.title.length > 255) {
-          return h.response({ 
-            error: 'title must be 255 characters or less' 
-          }).code(400);
-        }
-        
+
         // Build updates object (trim strings)
         const updates: any = {};
         if (payload.title !== undefined) updates.title = payload.title.trim();
@@ -176,8 +163,19 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          title: Joi.string().optional().max(255).trim(),
+          text: Joi.string().optional().trim(),
+          category: Joi.string().optional().trim().allow('', null),
+        }).or('title', 'text', 'category'),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Update a prayer (only owner can update)',
       tags: ['api', 'prayers']
     }
@@ -210,8 +208,14 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Delete a prayer (soft delete)',
       tags: ['api', 'prayers']
     }
@@ -241,8 +245,14 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Record that a prayer was played (increments play_count)',
       tags: ['api', 'prayers']
     }
@@ -332,14 +342,7 @@ export const prayerRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         const payload = request.payload as PrayerGenerationRequest;
-        
-        // Validate required fields
-        if (!payload.prayerType || !payload.tone || !payload.length ) {
-          return h.response({ 
-            error: 'Missing one of required fields: prayerType, tone, length' 
-          }).code(400);
-        }
-        
+
         const hasPrayOnItItems =
           Array.isArray(payload.prayOnItItems) && payload.prayOnItItems.length > 0;
 
@@ -390,8 +393,25 @@ export const prayerRoutes: ServerRoute[] = [
         }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          prayerType: Joi.string().valid('gratitude', 'intercession', 'petition', 'confession', 'praise').required(),
+          tone: Joi.string().valid('formal', 'conversational', 'contemplative', 'joyful').required(),
+          length: Joi.string().valid('brief', 'standard', 'extended').required(),
+          prayOnItItems: Joi.array().items(Joi.object({
+            id: Joi.string().uuid().required(),
+            name: Joi.string().required(),
+            category: Joi.string().required(),
+            relationship: Joi.string().optional().allow(null, ''),
+            prayerFocus: Joi.string().optional().allow(null, ''),
+            notes: Joi.string().optional().allow(null, ''),
+          })).optional(),
+          customContext: Joi.string().optional().allow(null, ''),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
       description: 'Generate a prayer using AI based on Pray On It items and preferences',
       tags: ['api', 'prayers', 'ai']
     }

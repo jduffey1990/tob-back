@@ -13,9 +13,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.userRoutes = void 0;
+const joi_1 = __importDefault(require("joi"));
 const axios_1 = __importDefault(require("axios"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
+const email_service_1 = require("../controllers/email.service");
 const userService_1 = require("../controllers/userService");
+const tokenService_1 = require("../controllers/tokenService");
 function verifyCaptcha(token_1) {
     return __awaiter(this, arguments, void 0, function* (token, minScore = 0.5) {
         if (!token) {
@@ -75,18 +78,20 @@ exports.userRoutes = [
         path: '/get-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
             const id = request.query.id;
-            if (!id)
-                return h.response('User ID is required').code(400);
-            // Optional: basic UUID sanity check
-            if (!/^[0-9a-fA-F-]{36}$/.test(id)) {
-                return h.response('Invalid user id format').code(400);
-            }
             const user = yield userService_1.UserService.findUserById(id);
             if (!user)
                 return h.response({ error: 'User not found' }).code(404);
             return h.response(user).code(200);
         }),
-        options: { auth: 'jwt' },
+        options: {
+            auth: 'jwt',
+            validate: {
+                query: joi_1.default.object({
+                    id: joi_1.default.string().uuid().required(),
+                }),
+                failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),
+            },
+        },
     },
     // Update the authenticated user's name/email
     {
@@ -153,22 +158,15 @@ exports.userRoutes = [
         method: 'POST',
         path: '/create-user',
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
-            var _a, _b, _c, _d;
+            var _a, _b, _c, _d, _e;
             try {
                 const payload = request.payload;
-                // Verify captcha (optional - can be disabled in dev)
-                yield verifyCaptcha(payload.captchaToken, 0.5);
                 // Parse name from either 'name' field or 'firstName' + 'lastName'
                 const name = ((_a = payload.name) === null || _a === void 0 ? void 0 : _a.toString().trim()) ||
                     `${(_b = payload.firstName) !== null && _b !== void 0 ? _b : ''} ${(_c = payload.lastName) !== null && _c !== void 0 ? _c : ''}`.trim();
-                // Validate required fields
-                if (!payload.email || !payload.password || !name) {
-                    return h
-                        .response({ error: 'email, password, and name are required' })
-                        .code(400);
-                }
                 // Hash password (8 rounds is fine for bcrypt)
                 const passwordHash = yield bcrypt_1.default.hash(payload.password, 8);
+                const denomination = ((_d = payload.denomination) === null || _d === void 0 ? void 0 : _d.toString().trim()) || 'Christian';
                 // Create user
                 // Note: subscriptionTier defaults to 'free' in DB
                 //       subscriptionExpiresAt defaults to NULL
@@ -177,16 +175,20 @@ exports.userRoutes = [
                     email: payload.email.toLowerCase(),
                     name,
                     passwordHash,
-                    status: "inactive"
+                    status: "inactive",
+                    denomination
                 });
-                // TODO: Send activation email here
-                // await EmailService.sendActivationEmail(newUser.email, activationToken);
+                // Create activation token
+                const activationToken = yield tokenService_1.activationTokenService.createActivationToken(newUser.id, newUser.email);
+                // Send activation email
+                const emailService = new email_service_1.EmailService();
+                yield emailService.sendActivationEmail(newUser.email, activationToken);
                 return h.response(newUser).code(201);
             }
             catch (error) {
                 console.error('Create user error:', error);
                 // Handle duplicate email
-                if ((_d = error.message) === null || _d === void 0 ? void 0 : _d.includes('duplicate key')) {
+                if ((_e = error.message) === null || _e === void 0 ? void 0 : _e.includes('duplicate key')) {
                     return h.response({
                         error: 'An account with this email already exists'
                     }).code(409);
@@ -197,7 +199,20 @@ exports.userRoutes = [
                 }).code(500);
             }
         }),
-        options: { auth: false }
+        options: {
+            auth: false,
+            validate: {
+                payload: joi_1.default.object({
+                    email: joi_1.default.string().email().required(),
+                    password: joi_1.default.string().required(),
+                    name: joi_1.default.string().optional().trim(),
+                    firstName: joi_1.default.string().optional().trim(),
+                    lastName: joi_1.default.string().optional().trim(),
+                    denomination: joi_1.default.string().optional().trim(),
+                }).or('name', 'firstName'),
+                failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),
+            },
+        },
     },
     // Return the current session's user (already validated by @hapi/jwt)
     {
@@ -228,7 +243,13 @@ exports.userRoutes = [
             }
         }),
         options: {
-            auth: false, // Or require admin auth
+            auth: false,
+            validate: {
+                params: joi_1.default.object({
+                    userId: joi_1.default.string().uuid().required(),
+                }),
+                failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),
+            },
             tags: ['api', 'users', 'dangerous'],
             description: '⚠️ DEV ONLY: Permanently delete user'
         },
@@ -244,13 +265,6 @@ exports.userRoutes = [
                     return h.response({ error: 'Unauthorized' }).code(401);
                 }
                 const payload = request.payload;
-                // Validate payload
-                if (payload.voiceIndex !== undefined && typeof payload.voiceIndex !== 'number') {
-                    return h.response({ error: 'voiceIndex must be a number' }).code(400);
-                }
-                if (payload.playbackRate !== undefined && typeof payload.playbackRate !== 'number') {
-                    return h.response({ error: 'playbackRate must be a number' }).code(400);
-                }
                 const updatedUser = yield userService_1.UserService.updateSettings(authUser.id, payload);
                 return h.response(updatedUser).code(200);
             }
@@ -259,7 +273,16 @@ exports.userRoutes = [
                 return h.response({ error: err.message || 'Failed to update settings' }).code(400);
             }
         }),
-        options: { auth: 'jwt' },
+        options: {
+            auth: 'jwt',
+            validate: {
+                payload: joi_1.default.object({
+                    voiceIndex: joi_1.default.number().integer().min(0).max(8).optional(),
+                    playbackRate: joi_1.default.number().min(0).max(1).optional(),
+                }),
+                failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),
+            },
+        },
     },
     // GET /users/me/settings - Get authenticated user's settings
     {
@@ -283,5 +306,35 @@ exports.userRoutes = [
             }
         }),
         options: { auth: 'jwt' },
+    },
+    {
+        method: 'POST',
+        path: '/cleanup/deleted-users',
+        options: {
+            auth: false, // EventBridge doesn't use JWT
+            description: 'Cleanup deleted users (called by EventBridge)',
+            tags: ['api', 'cleanup']
+        },
+        handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                // Optional: Add API key validation for security
+                const apiKey = request.headers['x-api-key'];
+                if (apiKey !== process.env.CLEANUP_API_KEY) {
+                    return h.response({ error: 'Unauthorized' }).code(401);
+                }
+                const result = yield userService_1.UserService.cleanupOldDeletedUsers();
+                return h.response({
+                    success: true,
+                    message: `Deleted ${result.deletedCount} users`,
+                    deletedCount: result.deletedCount
+                }).code(200);
+            }
+            catch (error) {
+                console.error('Cleanup endpoint error:', error);
+                return h.response({
+                    error: error.message || 'Cleanup failed'
+                }).code(500);
+            }
+        })
     }
 ];

@@ -1,5 +1,11 @@
 // src/models/prayOnItItem.ts
 
+export const PRAY_ON_IT_CATEGORIES = [
+  'family', 'friends', 'work', 'health', 'personal', 'world', 'other'
+] as const;
+
+export type PrayOnItCategory = typeof PRAY_ON_IT_CATEGORIES[number];
+
 /**
  * PrayOnItItem - Represents a person, situation, or intention the user wants to pray for
  */
@@ -7,7 +13,7 @@ export interface PrayOnItItem {
   id: string;
   userId: string;
   name: string;
-  category: 'family' | 'friends' | 'work' | 'health' | 'personal' | 'world' | 'other';
+  category: PrayOnItCategory;
   relationship?: string | null;
   prayerFocus?: string | null;
   notes?: string | null;
@@ -21,7 +27,7 @@ export interface PrayOnItItem {
 export interface CreatePrayOnItItemInput {
   userId: string;
   name: string;
-  category: 'family' | 'friends' | 'work' | 'health' | 'personal' | 'world' | 'other';
+  category: PrayOnItCategory;
   relationship?: string;
   prayerFocus?: string;
   notes?: string;
@@ -32,7 +38,7 @@ export interface CreatePrayOnItItemInput {
  */
 export interface UpdatePrayOnItItemInput {
   name?: string;
-  category?: 'family' | 'friends' | 'work' | 'health' | 'personal' | 'world' | 'other';
+  category?: PrayOnItCategory;
   relationship?: string | null;
   prayerFocus?: string | null;
   notes?: string | null;

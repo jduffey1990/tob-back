@@ -1,6 +1,6 @@
 "use strict";
 // src/controllers/redis.service.ts
-// Redis service for TTS audio build state tracking
+// Hybrid Redis service: ioredis for local dev, Upstash HTTP SDK for production
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -14,66 +14,111 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RedisService = void 0;
+exports.redisService = void 0;
+const redis_1 = require("@upstash/redis");
 const ioredis_1 = __importDefault(require("ioredis"));
-const dotenv_1 = __importDefault(require("dotenv"));
-dotenv_1.default.config();
 class RedisService {
     /**
-     * Get singleton Redis instance
-     * Automatically connects on first call
+     * Initialize Redis client (called automatically on first use)
+     */
+    static init() {
+        if (this.initialized)
+            return;
+        this.isProduction = process.env.NODE_ENV === 'production';
+        if (this.isProduction) {
+            // PRODUCTION: Use Upstash HTTP SDK (Lambda-optimized)
+            this.client = this.initUpstashRedis();
+            console.log('🌐 Using Upstash HTTP SDK for production');
+        }
+        else {
+            // DEVELOPMENT: Use ioredis for local Docker
+            this.client = this.initIORedis();
+            console.log('🐳 Using ioredis for local development');
+        }
+        this.initialized = true;
+    }
+    static initUpstashRedis() {
+        const url = process.env.REDIS_URL;
+        const token = process.env.REDIS_TOKEN;
+        if (!url || !token) {
+            throw new Error('REDIS_URL and REDIS_TOKEN are required in production');
+        }
+        console.log('🔧 Initializing Upstash Redis...');
+        console.log(`   URL: ${url}`);
+        console.log(`   Token: ${token.substring(0, 10)}...`);
+        return new redis_1.Redis({
+            url,
+            token,
+        });
+    }
+    static initIORedis() {
+        const host = process.env.REDIS_HOST || 'redis';
+        const port = parseInt(process.env.REDIS_PORT || '6379');
+        const password = process.env.REDIS_PASSWORD || undefined;
+        console.log('🔧 Initializing local Redis (ioredis)...');
+        console.log(`   Host: ${host}`);
+        console.log(`   Port: ${port}`);
+        console.log(`   Password: ${password ? '***' : 'none'}`);
+        const client = new ioredis_1.default({
+            host,
+            port,
+            password: password || undefined,
+            db: process.env.NODE_ENV === 'production' ? 0 : 1,
+            retryStrategy: (times) => {
+                const delay = Math.min(times * 50, 2000);
+                console.log(`⏳ Redis reconnecting in ${delay}ms (attempt ${times})`);
+                return delay;
+            },
+            connectTimeout: 10000,
+            enableOfflineQueue: true,
+        });
+        // Event handlers for ioredis
+        client.on('connect', () => {
+            console.log('✅ Redis connected');
+        });
+        client.on('ready', () => {
+            console.log('✅ Redis ready to accept commands');
+        });
+        client.on('error', (err) => {
+            console.error('❌ Redis error:', err);
+        });
+        client.on('close', () => {
+            console.log('🔌 Redis connection closed');
+        });
+        client.on('reconnecting', () => {
+            console.log('🔄 Redis reconnecting...');
+        });
+        return client;
+    }
+    /**
+     * Get Redis client instance
      */
     static getInstance() {
-        if (!RedisService.instance) {
-            const config = {
-                host: process.env.REDIS_HOST || 'localhost',
-                port: parseInt(process.env.REDIS_PORT || '6379'),
-                password: process.env.REDIS_PASSWORD || undefined,
-                // Use different DB for dev vs prod
-                db: process.env.NODE_ENV === 'production' ? 0 : 1,
-                // Retry strategy
-                retryStrategy: (times) => {
-                    const delay = Math.min(times * 50, 2000);
-                    console.log(`⏳ Redis reconnecting in ${delay}ms (attempt ${times})`);
-                    return delay;
-                },
-                // Connection timeout
-                connectTimeout: 10000,
-                // Enable offline queue (commands queued while disconnected)
-                enableOfflineQueue: true,
-            };
-            RedisService.instance = new ioredis_1.default(config);
-            RedisService.instance.on('error', (err) => {
-                console.error('❌ Redis error:', err);
-            });
-            RedisService.instance.on('connect', () => {
-                console.log('✅ Redis connected');
-            });
-            RedisService.instance.on('ready', () => {
-                console.log('✅ Redis ready to accept commands');
-            });
-            RedisService.instance.on('reconnecting', () => {
-                console.log('🔄 Redis reconnecting...');
-            });
-            RedisService.instance.on('close', () => {
-                console.log('🔌 Redis connection closed');
-            });
+        if (!this.initialized) {
+            this.init();
         }
-        return RedisService.instance;
+        return this.client;
     }
     /**
      * Close Redis connection (for graceful shutdown)
      */
     static disconnect() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (RedisService.instance) {
-                yield RedisService.instance.quit();
+            if (!this.initialized)
+                return;
+            if (!this.isProduction && this.client instanceof ioredis_1.default) {
+                yield this.client.quit();
                 console.log('✅ Redis disconnected gracefully');
             }
+            else {
+                console.log('✅ Upstash Redis (no connection to close)');
+            }
+            this.initialized = false;
         });
     }
     // ==============================================
     // TTS-SPECIFIC HELPER METHODS
+    // (Maintains existing API with prayerId AND voiceId)
     // ==============================================
     /**
      * Generate Redis key for TTS build state
@@ -88,10 +133,17 @@ class RedisService {
      */
     static isBuilding(prayerId, voiceId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const redis = RedisService.getInstance();
-            const key = RedisService.getTTSKey(prayerId, voiceId);
-            const value = yield redis.get(key);
-            return value === 'building';
+            if (!this.initialized)
+                this.init();
+            const key = this.getTTSKey(prayerId, voiceId);
+            try {
+                const value = yield this.client.get(key);
+                return value === 'building';
+            }
+            catch (error) {
+                console.error(`Redis isBuilding error for key "${key}":`, error);
+                throw error;
+            }
         });
     }
     /**
@@ -101,12 +153,26 @@ class RedisService {
      */
     static markAsBuilding(prayerId_1, voiceId_1) {
         return __awaiter(this, arguments, void 0, function* (prayerId, voiceId, ttlSeconds = 600) {
-            const redis = RedisService.getInstance();
-            const key = RedisService.getTTSKey(prayerId, voiceId);
-            // SETNX = SET if Not eXists (atomic operation)
-            // Returns 1 if key was set, 0 if key already existed
-            const result = yield redis.set(key, 'building', 'EX', ttlSeconds, 'NX');
-            return result === 'OK';
+            if (!this.initialized)
+                this.init();
+            const key = this.getTTSKey(prayerId, voiceId);
+            try {
+                if (this.isProduction) {
+                    // Upstash: Use set with NX option
+                    const result = yield this.client.set(key, 'building', { ex: ttlSeconds, nx: true });
+                    return result === 'OK';
+                }
+                else {
+                    // ioredis: SETNX = SET if Not eXists (atomic operation)
+                    // Returns 1 if key was set, 0 if key already existed
+                    const result = yield this.client.set(key, 'building', 'EX', ttlSeconds, 'NX');
+                    return result === 'OK';
+                }
+            }
+            catch (error) {
+                console.error(`Redis markAsBuilding error for key "${key}":`, error);
+                throw error;
+            }
         });
     }
     /**
@@ -114,9 +180,16 @@ class RedisService {
      */
     static clearBuilding(prayerId, voiceId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const redis = RedisService.getInstance();
-            const key = RedisService.getTTSKey(prayerId, voiceId);
-            yield redis.del(key);
+            if (!this.initialized)
+                this.init();
+            const key = this.getTTSKey(prayerId, voiceId);
+            try {
+                yield this.client.del(key);
+            }
+            catch (error) {
+                console.error(`Redis clearBuilding error for key "${key}":`, error);
+                throw error;
+            }
         });
     }
     /**
@@ -125,10 +198,57 @@ class RedisService {
      */
     static getBuildingTTL(prayerId, voiceId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const redis = RedisService.getInstance();
-            const key = RedisService.getTTSKey(prayerId, voiceId);
-            return yield redis.ttl(key);
+            if (!this.initialized)
+                this.init();
+            const key = this.getTTSKey(prayerId, voiceId);
+            try {
+                return yield this.client.ttl(key);
+            }
+            catch (error) {
+                console.error(`Redis getBuildingTTL error for key "${key}":`, error);
+                throw error;
+            }
+        });
+    }
+    // ==============================================
+    // ADDITIONAL UTILITY METHODS (if needed)
+    // ==============================================
+    /**
+     * Ping Redis to check connection
+     */
+    static ping() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            try {
+                const response = yield this.client.ping();
+                return response === 'PONG';
+            }
+            catch (error) {
+                console.error('Redis PING failed:', error);
+                return false;
+            }
+        });
+    }
+    /**
+     * Get all keys matching pattern
+     * WARNING: Use carefully in production!
+     */
+    static keys(pattern) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            try {
+                return yield this.client.keys(pattern);
+            }
+            catch (error) {
+                console.error(`Redis KEYS error for pattern "${pattern}":`, error);
+                throw error;
+            }
         });
     }
 }
-exports.RedisService = RedisService;
+RedisService.initialized = false;
+// Export singleton instance helper for compatibility
+exports.redisService = RedisService;
+exports.default = RedisService;
