@@ -101,6 +101,16 @@ function runAndGet(cmd, opts = {}) {
     console.log('\nUpdating Lambda function code…');
     run(updateCmd);
 
+    const WORKER_FUNCTION = `${FUNCTION_NAME}-tts-worker`;
+    console.log(`\nUpdating TTS worker Lambda (${WORKER_FUNCTION})…`);
+    try {
+      run(`aws lambda update-function-code --function-name "${WORKER_FUNCTION}" --zip-file fileb://${ZIP_NAME} --publish${REGION_FLAG}`);
+      console.log('✅ TTS worker updated.');
+    } catch (e) {
+      console.warn(`⚠️  TTS worker update failed (may not exist yet): ${e.message}`);
+    }
+
+
     // 5) Get the latest published version number
     const getVersionCmd = `aws lambda list-versions-by-function --function-name "${FUNCTION_NAME}" --query "Versions[-1].Version" --output text${REGION_FLAG}`;
     const version = runAndGet(getVersionCmd);

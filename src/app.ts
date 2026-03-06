@@ -3,9 +3,11 @@ import Hapi, { type ServerRoute } from '@hapi/hapi'
 import serverlessExpress from '@vendia/serverless-express'
 import dotenv from 'dotenv'
 import type { IncomingMessage, RequestListener, ServerResponse } from 'http'
+import { SQSEvent } from 'aws-lambda';
 
 import { AuthService } from './controllers/authService'
 import { PostgresService } from './controllers/postgres.service'
+import { AudioService } from './controllers/audioService';
 import { S3Service } from './controllers/s3.service'
 import { UserService } from './controllers/userService'
 import { StatsService } from './controllers/statsService';
@@ -217,6 +219,21 @@ export const handler = async (event: any, context: any) => {
       };
     }
   }
+
+  if (event.Records?.[0]?.eventSource === 'aws:sqs') {
+  const body = JSON.parse(event.Records[0].body);
+  console.log(`🎙️ TTS Worker processing: prayer=${body.prayerId}`);
+  
+  const dbService = PostgresService.getInstance();
+  await dbService.connect({ max: 1, connectionTimeoutMillis: 5000 });
+  
+  await AudioService.generateAndStore(
+    body.prayerId, body.text, body.voiceId, body.userId
+  );
+  
+  return { statusCode: 200 };
+}
+
   
   // Otherwise, handle normal HTTP requests via serverless-express
   try {

@@ -4,7 +4,9 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import { AudioService } from '../controllers/audioService';
 import type { UserSafe } from '../models/user';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
+const sqs = new SQSClient({});
 export const audioRoutes: ServerRoute[] = [
   
   // ============================================
@@ -117,12 +119,16 @@ export const audioRoutes: ServerRoute[] = [
         console.log(`   Text length: ${prayer.text.length} chars`);
         
         // Fire and forget - generation happens in background
-        AudioService.generateInBackground(
-          prayerId,
-          prayer.text,
-          payload.voiceId,
-          authUser.id
-        );
+        await sqs.send(new SendMessageCommand({
+          QueueUrl: process.env.TTS_QUEUE_URL,
+          MessageBody: JSON.stringify({
+            prayerId,
+            text: prayer.text,
+            voiceId: payload.voiceId,
+            userId: authUser.id
+          })
+        }));
+
         
         // Return 202 Accepted immediately
         return h.response({

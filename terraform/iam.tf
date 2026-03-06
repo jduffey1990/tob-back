@@ -148,7 +148,10 @@ resource "aws_iam_role_policy" "codebuild" {
         "lambda:CreateAlias",
         "lambda:GetAlias"
       ]
-        Resource = aws_lambda_function.main.arn
+        Resource = [
+          aws_lambda_function.main.arn,
+          aws_lambda_function.tts_worker.arn
+        ]
       }
     ]
   })
