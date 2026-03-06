@@ -115,15 +115,29 @@ export const audioRoutes: ServerRoute[] = [
         console.log(`   Text length: ${prayer.text.length} chars`);
         
         // Fire and forget - generation happens in background
-        await sqs.send(new SendMessageCommand({
-          QueueUrl: process.env.TTS_QUEUE_URL,
-          MessageBody: JSON.stringify({
+        if (process.env.NODE_ENV === 'development') {
+          console.log("🧪 Local dev: running TTS worker inline");
+
+          await AudioService.generateAndStore(
             prayerId,
-            text: prayer.text,
-            voiceId: payload.voiceId,
-            userId: authUser.id
-          })
-        }));
+            prayer.text,
+            payload.voiceId,
+            authUser.id
+          );
+
+        } else {
+
+          await sqs.send(new SendMessageCommand({
+            QueueUrl: process.env.TTS_QUEUE_URL,
+            MessageBody: JSON.stringify({
+              prayerId,
+              text: prayer.text,
+              voiceId: payload.voiceId,
+              userId: authUser.id
+            })
+          }));
+
+        }
 
         
         // Return 202 Accepted immediately

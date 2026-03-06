@@ -1,222 +1,68 @@
-# CLAUDE.md - Tower of Babble Backend
+# Lambda Email Broadcast Script
 
-## Project Overview
-Node.js + TypeScript backend for a prayer iOS app. Hapi.js server deployed to AWS Lambda via serverless-express. PostgreSQL (Neon serverless) + Redis (Upstash) + S3 for audio files.
+## Task
+Create a standalone script at the root level of the project (e.g. `lambdaEmailBroadcast.ts`) that can be invoked manually from the AWS Lambda console test GUI. Comment the exact method to call this file through Lambda's test feature at the top of the file.  It should:
 
-## Key Commands
-```bash
-npm run build          # TypeScript → dist/
-npm run dev            # Local dev with nodemon
-npm test               # Jest test suite
-npm run migrate:up     # Run DB migrations
-```
-
-## Architecture
-- **Framework**: Hapi.js (NOT Express — Hapi has its own patterns for validation, auth, plugins)
-- **Auth**: @hapi/jwt strategy, registered globally in app.ts. Routes opt in with `options: { auth: 'jwt' }`
-- **DB**: PostgresService singleton at `src/controllers/postgres.service.ts`
-- **Errors**: Custom error classes at `src/errors/AppErrors.ts` with central handler at `src/errors/handleRouteError.ts`
-- **Monitoring**: Hapi lifecycle plugin at `src/plugins/requestLogger.ts` — logs every request as structured JSON
-
-## Error Handling System
-All service-layer errors use typed classes from `src/errors/AppErrors.ts`:
-- `NotFoundError('Prayer')` → 404
-- `LimitReachedError('message')` → 402 with `{ error, message, upgradeRequired: true }`
-- `ValidationError('message')` → 400
-- `ExternalServiceError('service', 'message')` → 503
-- `ConflictError('message')` → 409
-- `RateLimitError()` → 429
-
-Every route catch block uses: `catch (error) { return handleRouteError(error, h); }`
-
-Import from barrel: `import { NotFoundError, handleRouteError } from '../errors';`
-
-**CRITICAL**: The iOS client (SwiftUI) expects specific status codes and response shapes. Do NOT change HTTP status codes or response body structure for existing error cases.
+1. Connect to the database using the existing `PostgresService` singleton
+2. Query all user emails and names from the users table
+3. Send each user a personalized thank-you email
+4. Log results in the same structured JSON format used by the existing request logger plugin
 
 ---
 
-## ACTIVE TASK: Joi Validation Migration
+## Instructions for VS Code Claude
 
-### What This Is
-Replace all manual `if (!payload.field)` validation in route handlers with Hapi's built-in Joi validation. Joi schemas go in the route's `options.validate` block. Hapi runs validation BEFORE the handler — if validation fails, Hapi returns a 400 automatically without the handler ever executing.
+### Before writing a single line of code, you MUST:
+- Read `src/controllers/postgres.service.ts` to understand exactly how `PostgresService` is instantiated, how queries are executed, and how the singleton is accessed
+- Read `src/errors/AppErrors.ts` to understand the custom error classes available
+- Read `src/errors/handleRouteError.ts` to understand the error handling pattern
+- Read `src/plugins/requestLogger.ts` to understand the structured JSON logging format
+- Read `app.ts` to understand how the app bootstraps, how env config is loaded, and how `@hapi/jwt` is registered — this gives you context on environment variable patterns and initialization order
+- Find any existing email-sending utility in the codebase and use it exactly. If none exists, identify the email provider from environment variables or package.json and match the invocation style to whatever pattern is closest in the codebase
 
-### Package
-Joi is already available via `@hapi/hapi` — use `import Joi from 'joi'` (install `@hapi/joi` if not present, or use the `joi` package directly).
+---
 
-### The Pattern
+## Code Fidelity Rules
 
-BEFORE (manual validation inside handler):
-```typescript
-{
-  method: 'POST',
-  path: '/prayers',
-  handler: async (request: Request, h: ResponseToolkit) => {
-    try {
-      const authUser = request.auth.credentials as UserSafe;
-      const payload = request.payload as { title: string; text: string; category?: string };
-      
-      if (!payload.title || !payload.text) {
-        return h.response({ error: 'title and text are required' }).code(400);
-      }
-      
-      if (payload.title.length > 255) {
-        return h.response({ error: 'title must be 255 characters or less' }).code(400);
-      }
-      
-      // ... actual business logic
-    } catch (error) {
-      return handleRouteError(error, h);
-    }
-  },
-  options: { auth: 'jwt' }
-}
-```
+### Database
+- Use `PostgresService` exactly as it is used elsewhere — same import path, same singleton access pattern, same `.query()` or `.pool` usage — do not invent a new pg connection
+- Mirror the exact SQL style (parameterized queries, casing, aliasing) used in other service files
+- If the users table schema is not immediately obvious, query `information_schema.columns` or read existing queries that touch the users table to confirm column names before writing the SELECT
 
-AFTER (Joi schema in options.validate):
-```typescript
-{
-  method: 'POST',
-  path: '/prayers',
-  handler: async (request: Request, h: ResponseToolkit) => {
-    try {
-      const authUser = request.auth.credentials as UserSafe;
-      const { title, text, category } = request.payload as {
-        title: string;
-        text: string;
-        category?: string;
-      };
-      
-      // Validation already passed — go straight to business logic
-      await PrayerLimitService.checkCanCreatePrayer(authUser.id);
-      
-      const newPrayer = await PrayerService.createPrayer({
-        userId: authUser.id,
-        title: title.trim(),
-        text: text.trim(),
-        category: category?.trim() || undefined,
-        isTemplate: false
-      });
-      
-      return h.response(newPrayer).code(201);
-    } catch (error) {
-      return handleRouteError(error, h);
-    }
-  },
-  options: {
-    auth: 'jwt',
-    validate: {
-      payload: Joi.object({
-        title: Joi.string().required().max(255).trim(),
-        text: Joi.string().required().trim(),
-        category: Joi.string().optional().trim().allow('', null),
-      }),
-      failAction: async (request, h, err) => {
-        throw err; // Returns 400 with Joi's validation message
-      }
-    },
-    description: 'Create a new prayer',
-    tags: ['api', 'prayers']
-  }
-}
-```
+### Email
+- If an email utility/service already exists in the codebase, use it — same import, same method signature, same error handling around it
+- If no utility exists, identify the provider from `package.json` or environment variables and implement the send call in the same style as any other third-party service call in the codebase
+- Each email should be personalized with the user's name drawn from whatever name column(s) exist in the users table (confirm from schema or existing queries — do not assume `first_name`, `name`, or `username`)
 
-### failAction
-Always include `failAction: async (request, h, err) => { throw err; }` in every validate block. Without this, Hapi may swallow the error in some configurations. This ensures a clean 400 with Joi's message reaches the client.
+### Email Body
+Send the following message, substituting the user's name:
 
-### Route params and query validation
-Joi validation isn't just for payloads. Use it for params and query strings too:
+> Hey [name], just wanted to say thank you for your feedback this week. Thanks to all of the information you sent back to me, I think I am at the point of leaving the coding be and working a bit on marketing. If you update your app on TestFlight, you should have access to the sandbox for 90 days to use all of the premium features as a thank you for all of your feedback. Your info will still be available in the App Store application once this period runs out. That being said, feel free to update me on any problems you have in the meantime. Cheers!
 
-```typescript
-options: {
-  auth: 'jwt',
-  validate: {
-    params: Joi.object({
-      id: Joi.string().uuid().required(),
-    }),
-    query: Joi.object({
-      voiceId: Joi.string().required(),
-    }),
-    failAction: async (request, h, err) => { throw err; }
-  }
-}
-```
+### Error Handling
+- Wrap all database and email operations in try/catch
+- Use the existing custom error classes from `src/errors/AppErrors.ts` where semantically appropriate
+- Do NOT let one failed email send abort the entire loop — log the failure for that user and continue
+- Log errors in the same structured JSON format used by `src/plugins/requestLogger.ts`
 
-### Files to Migrate (in priority order)
+### Logging
+- Log a structured JSON summary at the end: total users found, emails sent successfully, emails failed
+- Match the exact log format (keys, structure, use of `console.log` vs a logger instance) found in `requestLogger.ts`
 
-1. **`src/routes/prayerRoutes.ts`** — Most validation-heavy. Has manual checks for title, text, category, title length. The `POST /prayers/ai-gen` route has complex payload validation (prayerType, tone, length, prayOnItItems OR customContext required).
+### Lambda Handler Shape
+- Export a `handler` function compatible with AWS Lambda (i.e. `export const handler = async (event, context) => {}`)
+- The handler should not depend on Hapi being running — it is a standalone script
+- Return a structured JSON response body indicating success/failure counts, consistent with how other Lambda-compatible handlers are written in this project if any exist
 
-2. **`src/routes/prayOnItRoutes.ts`** — Has ~15 lines of manual validation per handler: name, category (enum), relationship (max 100), prayerFocus (max 100), notes (max 200). Category must be one of: family, friends, work, health, personal, world, other.
+### TypeScript
+- Match the TypeScript strictness, import style (named vs default), and file structure conventions of the rest of the codebase
+- Do not introduce any new dependencies without flagging it explicitly — prefer reusing what is already in `package.json`
 
-3. **`src/routes/audioRoutes.ts`** — Needs params validation (prayer id as UUID) and query validation (voiceId required on some routes).
+---
 
-4. **`src/routes/playlistRoutes.ts`** — Payload validation for name, prayerIds array.
-
-5. **`src/routes/userRoutes.ts`** — Settings validation (voiceIndex 0-8, playbackRate 0-1), profile updates.
-
-6. **`src/routes/loginRoutes.ts`** — Email and password on login/register. Email format validation. Password minimum length.
-
-7. **`src/routes/passwordResetRoutes.ts`** — Token validation, new password minimum length.
-
-8. **`src/routes/ttsRoutes.ts`** — voiceId required in payload.
-
-9. **`src/routes/denominationRoutes.ts`** — Check what validation exists.
-
-10. **`src/routes/appleRoutes.ts`** — Apple receipt/transaction validation.
-
-### Business Logic Validation Stays in Handlers
-Joi handles STRUCTURAL validation (field exists, correct type, length limits, enum values). Business logic validation stays in the handler or service layer:
-- Prayer limit checks → `PrayerLimitService.checkCanCreatePrayer()` (throws LimitReachedError)
-- AI generation limits → `AIService.checkCanGenerate()` (throws LimitReachedError)
-- Ownership verification → service layer returns null, handler throws NotFoundError
-- The "prayOnItItems OR customContext required" check on ai-gen is borderline — can be done with Joi's `.or()` or `.xor()` or left in handler
-
-### What NOT to Change
-- Do NOT change error response shapes — iOS client depends on them
-- Do NOT remove the `catch (error) { return handleRouteError(error, h) }` pattern
-- Do NOT change auth configuration on any route
-- Do NOT change the actual business logic inside handlers
-- Keep existing route descriptions and tags
-
-### Removing Old Validation Code
-After adding Joi schema, DELETE the manual validation lines from the handler. Don't leave them as dead code. The whole point is that Joi runs first and the handler only contains business logic.
-
-### Using model as validation instead of duplicating code
--Example: [text](src/models/prayOnItItem.ts) has validation models (unfortuneately also heavily duplicated in that file) but validation tupels on models should be used over new ones added to route files:
-
-```typescript
-export const PRAY_ON_IT_CATEGORIES = [
-  'family', 'friends', 'work', 'health', 'personal', 'world', 'other'
-] as const;
-
-export type PrayOnItCategory = typeof PRAY_ON_IT_CATEGORIES[number];
-
-export interface PrayOnItItem {
-  id: string;
-  userId: string;
-  name: string;
-  category: PrayOnItCategory;
-  // ... rest stays the same
-}
-```
-
-### Testing After Each File
-After converting each route file:
-1. `npm run build` — must compile with no TypeScript errors
-2. Test the endpoint locally if possible
-3. Verify Joi returns 400 for bad input (missing required fields, wrong types)
-4. Verify valid requests still work as before
-
-### Shared Schemas (Optional Optimization)
-If you notice repeated schemas across routes, extract them to `src/schemas/` directory:
-```typescript
-// src/schemas/prayerSchemas.ts
-import Joi from 'joi';
-
-export const createPrayerSchema = Joi.object({
-  title: Joi.string().required().max(255).trim(),
-  text: Joi.string().required().trim(),
-  category: Joi.string().optional().trim().allow('', null),
-});
-```
-
-But don't over-abstract too early — inline schemas are fine to start.
+## What NOT to do
+- Do not use Express patterns — this project uses Hapi.js
+- Do not create a new database connection from scratch — use `PostgresService`
+- Do not hardcode credentials — read from environment variables using the same pattern as the rest of the app
+- Do not assume column names — verify against the schema or existing queries
+- Do not swallow errors silently
