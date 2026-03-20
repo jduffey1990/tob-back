@@ -11,6 +11,7 @@ import { passwordResetRoutes } from './passwordResetRoutes';
 import { denominationRoutes } from './denominationRoutes';
 import { appleRoutes } from './appleRoutes';
 import { playlistRoutes } from './playlistRoutes'
+import { flockRoutes } from './flockRoutes'
 
 export default [
   ...userRoutes,
@@ -25,5 +26,6 @@ export default [
   ...passwordResetRoutes,
   ...denominationRoutes,
   ...appleRoutes,
-  ...playlistRoutes
+  ...playlistRoutes,
+  ...flockRoutes
 ];

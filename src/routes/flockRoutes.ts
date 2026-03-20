@@ -1,0 +1,525 @@
+// src/routes/flockRoutes.ts
+import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
+import Joi from 'joi';
+import { FlockService } from '../controllers/flockService';
+import { AudioService } from '../controllers/audioService';
+import { TTSService } from '../controllers/ttsService';
+import type { UserSafe } from '../models/user';
+
+const FLOCK_LEADER_TIERS = ['prayer_warrior', 'lifetime'];
+
+function isFlockLeaderTier(tier: string): boolean {
+  return FLOCK_LEADER_TIERS.includes(tier);
+}
+
+export const flockRoutes: ServerRoute[] = [
+
+  // ============================================
+  // POST /flocks - Create a flock (Prayer Warrior only)
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { name } = request.payload as { name: string };
+
+        if (!isFlockLeaderTier(authUser.subscriptionTier)) {
+          return h.response({
+            error: 'Prayer Warrior tier required to create a flock',
+            upgradeRequired: true
+          }).code(403);
+        }
+
+        // Check if leader already has a flock
+        const existing = await FlockService.getFlockByLeader(authUser.id);
+        if (existing) {
+          return h.response({
+            error: 'You already have a flock',
+            flock: existing
+          }).code(409);
+        }
+
+        const flock = await FlockService.createFlock({
+          leaderUserId: authUser.id,
+          name: name.trim(),
+        });
+
+        return h.response(flock).code(201);
+      } catch (error: any) {
+        console.error('Create flock error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          name: Joi.string().required().max(255).trim(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Create a flock (requires Prayer Warrior tier)',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/mine - Get leader's flock with stats
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/mine',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+
+        const flock = await FlockService.getFlockByLeader(authUser.id);
+        if (!flock) {
+          return h.response({ flock: null }).code(200);
+        }
+
+        const prayers = await FlockService.getLeaderPrayers(authUser.id);
+        const prayerRequests = await FlockService.getPrayerRequests(authUser.id);
+
+        return h.response({
+          flock,
+          prayers,
+          prayerRequests,
+        }).code(200);
+      } catch (error: any) {
+        console.error('Get my flock error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Get the authenticated leader\'s flock details and published prayers',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/join - Join a flock via QR code
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/join',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { qrCodeIdentifier } = request.payload as { qrCodeIdentifier: string };
+
+        const membership = await FlockService.joinFlock(qrCodeIdentifier, authUser.id);
+
+        return h.response({
+          success: true,
+          membership,
+        }).code(201);
+      } catch (error: any) {
+        console.error('Join flock error:', error);
+
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Flock not found. Please check the QR code.' }).code(404);
+        }
+        if (error.message.includes('already following') || error.message.includes('cannot join your own')) {
+          return h.response({ error: error.message }).code(409);
+        }
+
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          qrCodeIdentifier: Joi.string().required().trim(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Join a flock by scanning a leader\'s QR code',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/feed - Member's prayer feed
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/feed',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+
+        const feed = await FlockService.getMemberFeed(authUser.id);
+        const leaders = await FlockService.getFollowedLeaders(authUser.id);
+
+        return h.response({
+          prayers: feed,
+          leaders,
+          count: feed.length,
+        }).code(200);
+      } catch (error: any) {
+        console.error('Get flock feed error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Get aggregated prayer feed from all followed leaders',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/prayers/{id} - Get single flock prayer
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/prayers/{id}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const { id } = request.params;
+
+        const prayer = await FlockService.getFlockPrayerById(id);
+        if (!prayer) {
+          return h.response({ error: 'Flock prayer not found' }).code(404);
+        }
+
+        return h.response(prayer).code(200);
+      } catch (error: any) {
+        console.error('Get flock prayer error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Get a single flock prayer by ID',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/prayers - Publish a prayer to flock
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/prayers',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { title, text, voiceId } = request.payload as {
+          title: string;
+          text: string;
+          voiceId?: string;
+        };
+
+        if (!isFlockLeaderTier(authUser.subscriptionTier)) {
+          return h.response({
+            error: 'Prayer Warrior tier required to publish flock prayers',
+            upgradeRequired: true
+          }).code(403);
+        }
+
+        // Verify leader has a flock
+        const flock = await FlockService.getFlockByLeader(authUser.id);
+        if (!flock) {
+          return h.response({ error: 'You need to create a flock first' }).code(400);
+        }
+
+        // Create the prayer
+        const prayer = await FlockService.publishPrayer({
+          flockId: flock.id,
+          createdBy: authUser.id,
+          title: title.trim(),
+          text: text.trim(),
+        });
+
+        // If a voice was selected, fire off TTS in background
+        if (voiceId) {
+          console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${voiceId}`);
+          // Use the flock prayer ID as a namespace to avoid collision with personal prayer audio
+          AudioService.generateFlockPrayerAudio(prayer.id, text.trim(), voiceId, authUser.id);
+        }
+
+        return h.response(prayer).code(201);
+      } catch (error: any) {
+        console.error('Publish flock prayer error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          title: Joi.string().required().max(255).trim(),
+          text: Joi.string().required().trim(),
+          voiceId: Joi.string().optional().trim().allow('', null),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Publish a prayer to the leader\'s flock',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/prayers/{id}/listen - Record listen
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/prayers/{id}/listen',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const { id } = request.params;
+        const prayer = await FlockService.recordListen(id);
+        return h.response(prayer).code(200);
+      } catch (error: any) {
+        console.error('Record flock listen error:', error);
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Flock prayer not found' }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Record that a flock prayer was listened to',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // DELETE /flocks/prayers/{id} - Delete flock prayer
+  // ============================================
+  {
+    method: 'DELETE',
+    path: '/flocks/prayers/{id}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id } = request.params;
+
+        await FlockService.deleteFlockPrayer(id, authUser.id);
+
+        return h.response({
+          success: true,
+          message: 'Flock prayer deleted successfully'
+        }).code(200);
+      } catch (error: any) {
+        console.error('Delete flock prayer error:', error);
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Flock prayer not found' }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Delete a flock prayer (leader only)',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // DELETE /flocks/members/{flockId} - Unfollow a leader
+  // ============================================
+  {
+    method: 'DELETE',
+    path: '/flocks/members/{flockId}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { flockId } = request.params;
+
+        await FlockService.leaveFlock(flockId, authUser.id);
+
+        return h.response({
+          success: true,
+          message: 'Unfollowed successfully'
+        }).code(200);
+      } catch (error: any) {
+        console.error('Leave flock error:', error);
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Membership not found' }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          flockId: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Unfollow a leader (leave their flock)',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/prayer-requests - Member shares pray-on-its with leaders
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/prayer-requests',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { items } = request.payload as {
+          items: Array<{ name: string; category?: string; prayerFocus?: string; notes?: string }>;
+        };
+
+        const results = await FlockService.sharePrayerRequests(
+          authUser.id,
+          authUser.name,
+          items
+        );
+
+        return h.response({
+          success: true,
+          shared: results.length,
+        }).code(201);
+      } catch (error: any) {
+        console.error('Share prayer requests error:', error);
+        if (error.message.includes('not a member')) {
+          return h.response({ error: error.message }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          items: Joi.array().items(Joi.object({
+            name: Joi.string().required().max(255),
+            category: Joi.string().optional().allow('', null),
+            prayerFocus: Joi.string().optional().allow('', null),
+            notes: Joi.string().optional().allow('', null),
+          })).min(1).required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Member shares pray-on-it items with their flock leaders',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/prayer-requests - Leader gets prayer requests from members
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/prayer-requests',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+
+        const requests = await FlockService.getPrayerRequests(authUser.id);
+
+        return h.response({
+          requests,
+          count: requests.length,
+        }).code(200);
+      } catch (error: any) {
+        console.error('Get prayer requests error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Get prayer requests shared by flock members',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // DELETE /flocks/prayer-requests/{id} - Leader dismisses a prayer request
+  // ============================================
+  {
+    method: 'DELETE',
+    path: '/flocks/prayer-requests/{id}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id } = request.params;
+
+        await FlockService.deletePrayerRequest(id, authUser.id);
+
+        return h.response({ success: true }).code(200);
+      } catch (error: any) {
+        console.error('Delete prayer request error:', error);
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Prayer request not found' }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Leader dismisses a prayer request',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/qr - Get leader's QR code data
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/qr',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+
+        const flock = await FlockService.getFlockByLeader(authUser.id);
+        if (!flock) {
+          return h.response({ error: 'You don\'t have a flock yet' }).code(404);
+        }
+
+        return h.response({
+          qrCodeIdentifier: flock.qrCodeIdentifier,
+          flockName: flock.name,
+          leaderName: authUser.name,
+        }).code(200);
+      } catch (error: any) {
+        console.error('Get QR code error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Get the leader\'s QR code identifier for display',
+      tags: ['api', 'flocks']
+    }
+  },
+];
