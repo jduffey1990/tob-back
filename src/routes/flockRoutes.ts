@@ -2,8 +2,12 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import Joi from 'joi';
 import { FlockService } from '../controllers/flockService';
+import { PrayerService } from '../controllers/prayerService';
+import { PrayerLimitService } from '../controllers/prayerLimitService';
 import { AudioService } from '../controllers/audioService';
 import { TTSService } from '../controllers/ttsService';
+import { PrayOnItService } from '../controllers/prayOnItService';
+import { PrayOnItCategory } from '../models/prayOnItItem';
 import type { UserSafe } from '../models/user';
 
 const FLOCK_LEADER_TIERS = ['prayer_warrior', 'lifetime'];
@@ -23,7 +27,11 @@ export const flockRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const { name } = request.payload as { name: string };
+        const { name, requiresAgeVerification, minimumAge } = request.payload as {
+          name: string;
+          requiresAgeVerification?: boolean;
+          minimumAge?: number;
+        };
 
         if (!isFlockLeaderTier(authUser.subscriptionTier)) {
           return h.response({
@@ -44,6 +52,8 @@ export const flockRoutes: ServerRoute[] = [
         const flock = await FlockService.createFlock({
           leaderUserId: authUser.id,
           name: name.trim(),
+          requiresAgeVerification: requiresAgeVerification ?? false,
+          minimumAge: minimumAge ?? 18,
         });
 
         return h.response(flock).code(201);
@@ -57,6 +67,8 @@ export const flockRoutes: ServerRoute[] = [
       validate: {
         payload: Joi.object({
           name: Joi.string().required().max(255).trim(),
+          requiresAgeVerification: Joi.boolean().optional().default(false),
+          minimumAge: Joi.number().integer().min(1).max(99).optional().default(18),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
@@ -80,7 +92,7 @@ export const flockRoutes: ServerRoute[] = [
           return h.response({ flock: null }).code(200);
         }
 
-        const prayers = await FlockService.getLeaderPrayers(authUser.id);
+        const prayers = await PrayerService.getLeaderFlockPrayers(authUser.id);
         const prayerRequests = await FlockService.getPrayerRequests(authUser.id);
 
         return h.response({
@@ -109,9 +121,13 @@ export const flockRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const { qrCodeIdentifier } = request.payload as { qrCodeIdentifier: string };
+        const { qrCodeIdentifier, isUnderAge, parentalConsentGiven } = request.payload as {
+          qrCodeIdentifier: string;
+          isUnderAge?: boolean;
+          parentalConsentGiven?: boolean;
+        };
 
-        const membership = await FlockService.joinFlock(qrCodeIdentifier, authUser.id);
+        const membership = await FlockService.joinFlock(qrCodeIdentifier, authUser.id, isUnderAge, parentalConsentGiven);
 
         return h.response({
           success: true,
@@ -126,6 +142,9 @@ export const flockRoutes: ServerRoute[] = [
         if (error.message.includes('already following') || error.message.includes('cannot join your own')) {
           return h.response({ error: error.message }).code(409);
         }
+        if (error.message.includes('Parental consent')) {
+          return h.response({ error: error.message }).code(403);
+        }
 
         return h.response({ error: error.message }).code(500);
       }
@@ -135,6 +154,8 @@ export const flockRoutes: ServerRoute[] = [
       validate: {
         payload: Joi.object({
           qrCodeIdentifier: Joi.string().required().trim(),
+          isUnderAge: Joi.boolean().optional(),
+          parentalConsentGiven: Joi.boolean().optional(),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
@@ -153,7 +174,7 @@ export const flockRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
 
-        const feed = await FlockService.getMemberFeed(authUser.id);
+        const feed = await PrayerService.getMemberFeed(authUser.id);
         const leaders = await FlockService.getFollowedLeaders(authUser.id);
 
         return h.response({
@@ -183,7 +204,7 @@ export const flockRoutes: ServerRoute[] = [
       try {
         const { id } = request.params;
 
-        const prayer = await FlockService.getFlockPrayerById(id);
+        const prayer = await PrayerService.getFlockPrayerById(id);
         if (!prayer) {
           return h.response({ error: 'Flock prayer not found' }).code(404);
         }
@@ -235,19 +256,21 @@ export const flockRoutes: ServerRoute[] = [
           return h.response({ error: 'You need to create a flock first' }).code(400);
         }
 
-        // Create the prayer
-        const prayer = await FlockService.publishPrayer({
-          flockId: flock.id,
-          createdBy: authUser.id,
+        // Create the prayer in the unified prayers table with flock_id set
+        const prayer = await PrayerService.createPrayer({
+          userId: authUser.id,
           title: title.trim(),
           text: text.trim(),
+          flockId: flock.id,
         });
 
-        // If a voice was selected, fire off TTS in background
-        if (voiceId) {
-          console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${voiceId}`);
-          // Use the flock prayer ID as a namespace to avoid collision with personal prayer audio
-          AudioService.generateFlockPrayerAudio(prayer.id, text.trim(), voiceId, authUser.id);
+        // Resolve voice: use provided voiceId, or fall back to user's preferred voice
+        const resolvedVoiceId = voiceId
+          || TTSService.getAvailableVoices()[authUser.settings?.voiceIndex ?? 0]?.id;
+
+        if (resolvedVoiceId && TTSService.getVoiceById(resolvedVoiceId)?.provider !== 'apple') {
+          console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
+          AudioService.generateInBackground(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
         }
 
         return h.response(prayer).code(201);
@@ -280,7 +303,7 @@ export const flockRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const { id } = request.params;
-        const prayer = await FlockService.recordListen(id);
+        const prayer = await PrayerService.recordFlockListen(id);
         return h.response(prayer).code(200);
       } catch (error: any) {
         console.error('Record flock listen error:', error);
@@ -314,7 +337,7 @@ export const flockRoutes: ServerRoute[] = [
         const authUser = request.auth.credentials as UserSafe;
         const { id } = request.params;
 
-        await FlockService.deleteFlockPrayer(id, authUser.id);
+        await PrayerService.deleteFlockPrayer(id, authUser.id);
 
         return h.response({
           success: true,
@@ -457,6 +480,62 @@ export const flockRoutes: ServerRoute[] = [
   },
 
   // ============================================
+  // PATCH /flocks/prayer-requests/{id} - Approve or deny a prayer request
+  // ============================================
+  {
+    method: 'PATCH',
+    path: '/flocks/prayer-requests/{id}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id } = request.params;
+        const { action } = request.payload as { action: 'approve' | 'deny' };
+
+        if (action === 'approve') {
+          // 1. Mark request as approved and get its data
+          const prayerRequest = await FlockService.approvePrayerRequest(id, authUser.id);
+
+          // 2. Add to leader's pray-on-it list (NOT a flock prayer)
+          const category = (prayerRequest.category as PrayOnItCategory) || 'other';
+          const prayOnItItem = await PrayOnItService.createItem({
+            userId: authUser.id,
+            name: prayerRequest.name,
+            category,
+            prayerFocus: prayerRequest.prayerFocus || undefined,
+            notes: prayerRequest.notes || undefined,
+          });
+
+          return h.response({ success: true, prayOnItItem }).code(200);
+        } else {
+          // Deny: just update the status
+          await FlockService.denyPrayerRequest(id, authUser.id);
+          return h.response({ success: true }).code(200);
+        }
+      } catch (error: any) {
+        console.error('Approve/deny prayer request error:', error);
+        if (error.message.includes('not found')) {
+          return h.response({ error: 'Prayer request not found' }).code(404);
+        }
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          action: Joi.string().valid('approve', 'deny').required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Approve or deny a prayer request from a flock member',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
   // DELETE /flocks/prayer-requests/{id} - Leader dismisses a prayer request
   // ============================================
   {
@@ -519,6 +598,44 @@ export const flockRoutes: ServerRoute[] = [
     options: {
       auth: 'jwt',
       description: 'Get the leader\'s QR code identifier for display',
+      tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/lookup - Look up flock info by QR code (for join flow)
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/lookup',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const { qrCodeIdentifier } = request.payload as { qrCodeIdentifier: string };
+
+        const flock = await FlockService.getFlockByQRCode(qrCodeIdentifier);
+        if (!flock) {
+          return h.response({ error: 'Flock not found' }).code(404);
+        }
+
+        return h.response({
+          flockName: flock.name,
+          requiresAgeVerification: flock.requiresAgeVerification,
+          minimumAge: flock.minimumAge,
+        }).code(200);
+      } catch (error: any) {
+        console.error('Flock lookup error:', error);
+        return h.response({ error: error.message }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          qrCodeIdentifier: Joi.string().required().trim(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Look up flock info by QR code identifier before joining',
       tags: ['api', 'flocks']
     }
   },

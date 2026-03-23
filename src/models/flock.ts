@@ -3,6 +3,8 @@ export interface Flock {
   leaderUserId: string;
   name: string;
   qrCodeIdentifier: string;
+  requiresAgeVerification: boolean;
+  minimumAge: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,41 +18,15 @@ export interface FlockMember {
   id: string;
   flockId: string;
   memberUserId: string;
+  parentalConsentGiven: boolean;
   joinedAt: Date;
-}
-
-export interface FlockPrayer {
-  id: string;
-  flockId: string;
-  createdBy: string;
-  title: string;
-  text: string;
-  audioUrl: string | null;
-  voiceId: string | null;
-  voiceName: string | null;
-  provider: string | null;
-  listenCount: number;
-  publishedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface FlockPrayerWithLeader extends FlockPrayer {
-  leaderName: string;
-  flockName: string;
 }
 
 export interface CreateFlockInput {
   leaderUserId: string;
   name: string;
-}
-
-export interface CreateFlockPrayerInput {
-  flockId: string;
-  createdBy: string;
-  title: string;
-  text: string;
-  voiceId?: string;
+  requiresAgeVerification?: boolean;
+  minimumAge?: number;
 }
 
 export interface FollowedLeader {
@@ -70,5 +46,6 @@ export interface FlockPrayerRequest {
   category: string | null;
   prayerFocus: string | null;
   notes: string | null;
+  status: 'pending' | 'approved' | 'denied';
   createdAt: Date;
 }

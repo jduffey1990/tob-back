@@ -54,10 +54,10 @@ export class PrayerLimitService {
 
     const { subscription_tier, subscription_expires_at } = userRows[0];
 
-    // Count user's active (non-deleted) prayers
+    // Count all user prayers (personal + flock)
     const { rows: prayerRows } = await db.query(
-      `SELECT COUNT(*) as count 
-       FROM prayers 
+      `SELECT COUNT(*) as count
+       FROM prayers
        WHERE user_id = $1::uuid`,
       [userId]
     );
@@ -144,8 +144,8 @@ export class PrayerLimitService {
     const db = PostgresService.getInstance();
     
     const { rows } = await db.query(
-      `SELECT COUNT(*) as count 
-       FROM prayers 
+      `SELECT COUNT(*) as count
+       FROM prayers
        WHERE user_id = $1::uuid`,
       [userId]
     );

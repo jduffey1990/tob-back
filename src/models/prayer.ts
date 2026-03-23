@@ -7,8 +7,21 @@ export interface Prayer {
   isTemplate: boolean;            // true for pre-built prayers in library
   playCount: number;              // how many times played
   lastPlayedAt?: Date | null;     // last time this prayer was played
+  flockId?: string | null;        // uuid - if set, this prayer is published to a flock
+  publishedAt?: Date | null;      // when it was published to the flock
+  listenCount: number;            // flock listen count
+  // Audio info (joined from audio_files for flock prayer responses)
+  audioUrl?: string | null;
+  voiceName?: string | null;
+  provider?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** A flock prayer with leader/flock metadata joined in */
+export interface FlockPrayerWithLeader extends Prayer {
+  leaderName: string;
+  flockName: string;
 }
 
 export type PrayerSafe = Prayer; // No sensitive fields to exclude
@@ -19,6 +32,7 @@ export interface CreatePrayerInput {
   text: string;
   category?: string;
   isTemplate?: boolean;
+  flockId?: string;
 }
 
 export interface UpdatePrayerInput {

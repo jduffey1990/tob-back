@@ -264,57 +264,6 @@ export class AudioService {
     }
   }
 
-  /**
-   * Generate TTS audio for a flock prayer, upload to S3,
-   * and update the flock_prayers row with the audio URL.
-   */
-  public static generateFlockPrayerAudio(
-    flockPrayerId: string,
-    text: string,
-    voiceId: string,
-    userId: string
-  ): void {
-    const voice = TTSService.getVoiceById(voiceId);
-    const voiceName = voice?.name ?? null;
-    const provider = voice?.provider ?? 'unknown';
-
-    // Use 'flock-' prefix to namespace S3 keys away from personal prayers
-    const namespacedId = `flock-${flockPrayerId}`;
-
-    this.generateAndStore(namespacedId, text, voiceId, userId)
-      .then(async () => {
-        // After successful generation, get the S3 URL from audio_files
-        const db = PostgresService.getInstance();
-        const { rows } = await db.query(
-          `SELECT s3_url FROM audio_files WHERE prayer_id = $1 AND voice_id = $2 LIMIT 1`,
-          [namespacedId, voiceId]
-        );
-
-        if (rows[0]) {
-          // Update flock_prayers with the audio info
-          await db.query(
-            `UPDATE flock_prayers
-             SET audio_url = $1, voice_id = $2, voice_name = $3, provider = $4, updated_at = NOW()
-             WHERE id = $5::uuid`,
-            [rows[0].s3_url, voiceId, voiceName, provider, flockPrayerId]
-          );
-          console.log(`[flocks] Audio ready for flock prayer ${flockPrayerId}`);
-        }
-      })
-      .catch((error: unknown) => {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(JSON.stringify({
-          level: 'error',
-          type: 'flock_prayer_audio_generation',
-          flockPrayerId,
-          voiceId,
-          userId,
-          message: err.message,
-          timestamp: new Date().toISOString(),
-        }));
-      });
-  }
-
   public static generateInBackground(
     prayerId: string,
     text: string,
