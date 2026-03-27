@@ -184,7 +184,7 @@ export class AudioService {
     
     const startTime = Date.now();
 
-    const voice = TTSService.getVoiceById(voiceId);
+    const voice = await TTSService.getVoiceById(voiceId);
     const voiceName = voice?.name ?? null;
     const provider = voice?.provider ?? 'unknown';
 

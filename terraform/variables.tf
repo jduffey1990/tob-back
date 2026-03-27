@@ -132,6 +132,12 @@ variable "fish_api_key" {
   sensitive   = true
 }
 
+# variable "cartesia_api_key" {          # commented out — may revisit
+#   description = "API key for Cartesia"
+#   type        = string
+#   sensitive   = true
+# }
+
 variable "app_url" {
   description = "base application webpage"
   type        = string

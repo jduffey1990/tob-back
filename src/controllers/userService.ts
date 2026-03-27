@@ -2,6 +2,7 @@
 import { PostgresService } from './postgres.service';
 import { User, UserSettings, DEFAULT_USER_SETTINGS } from '../models/user';
 import { S3Service } from './s3.service'
+import { TTSService } from './ttsService';
 import {ConflictError, ValidationError, NotFoundError} from '../errors/AppErrors'
 
 // Expose a "safe" user for reads (no passwordHash)
@@ -155,7 +156,7 @@ export class UserService {
   }
 
   /**
-   * NEW: Update user settings (voiceIndex, playbackRate)
+   * Update user settings (selectedVoiceId, playbackRate)
    * Uses JSONB merge operator (||) to update only provided fields
    */
   public static async updateSettings(
@@ -163,21 +164,34 @@ export class UserService {
     settingsUpdate: Partial<UserSettings>
   ): Promise<UserSafe> {
     const db = PostgresService.getInstance();
-    
-    // Validate voiceIndex if provided
-    if (settingsUpdate.voiceIndex !== undefined) {
-      if (settingsUpdate.voiceIndex < 0 || settingsUpdate.voiceIndex > 8) {
-        throw new ValidationError('voiceIndex must be between 0 and 8');
+
+    // Validate selectedVoiceId if provided
+    if (settingsUpdate.selectedVoiceId !== undefined) {
+      const voice = await TTSService.getVoiceById(settingsUpdate.selectedVoiceId);
+      if (!voice) {
+        throw new ValidationError(`Voice '${settingsUpdate.selectedVoiceId}' not found`);
+      }
+
+      // Check tier: get user's current tier
+      const userResult = await db.query(
+        'SELECT subscription_tier FROM users WHERE id = $1::uuid',
+        [userId]
+      );
+      if (userResult.rows.length === 0) throw new NotFoundError('User');
+
+      const userTier = userResult.rows[0].subscription_tier;
+      if (!TTSService.canUserUseVoice(userTier, voice)) {
+        throw new ValidationError(`Voice '${voice.name}' requires ${voice.tier} tier or higher`);
       }
     }
-    
+
     // Validate playbackRate if provided
     if (settingsUpdate.playbackRate !== undefined) {
       if (settingsUpdate.playbackRate < 0 || settingsUpdate.playbackRate > 1) {
         throw new ValidationError('playbackRate must be between 0 and 1');
       }
     }
-    
+
     // Use JSONB merge operator to update only provided fields
     const { rows } = await db.query(
       `UPDATE users
@@ -188,9 +202,9 @@ export class UserService {
                  settings, denomination, deleted_at, created_at, updated_at`,
       [JSON.stringify(settingsUpdate), userId]
     );
-    
+
     if (!rows[0]) throw new NotFoundError('User');
-    
+
     return mapRowToUserSafe(rows[0]);
   }
 

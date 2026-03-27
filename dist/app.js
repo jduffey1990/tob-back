@@ -19,6 +19,7 @@ const serverless_express_1 = __importDefault(require("@vendia/serverless-express
 const dotenv_1 = __importDefault(require("dotenv"));
 const authService_1 = require("./controllers/authService");
 const postgres_service_1 = require("./controllers/postgres.service");
+const audioService_1 = require("./controllers/audioService");
 const s3_service_1 = require("./controllers/s3.service");
 const userService_1 = require("./controllers/userService");
 const statsService_1 = require("./controllers/statsService");
@@ -32,6 +33,9 @@ const tokenRoutes_1 = require("./routes/tokenRoutes");
 const ttsRoutes_1 = require("./routes/ttsRoutes");
 const userRoutes_1 = require("./routes/userRoutes");
 const denominationRoutes_1 = require("./routes/denominationRoutes");
+const appleRoutes_1 = require("./routes/appleRoutes");
+const playlistRoutes_1 = require("./routes/playlistRoutes");
+const flockRoutes_1 = require("./routes/flockRoutes");
 const requestLogger_1 = __importDefault(require("./plugins/requestLogger"));
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -56,7 +60,10 @@ const allRoutes = asServerRoutes([
     ...redisRoutes_1.redisRoutes,
     ...audioRoutes_1.audioRoutes,
     ...passwordResetRoutes_1.passwordResetRoutes,
-    ...denominationRoutes_1.denominationRoutes
+    ...denominationRoutes_1.denominationRoutes,
+    ...appleRoutes_1.appleRoutes,
+    ...playlistRoutes_1.playlistRoutes,
+    ...flockRoutes_1.flockRoutes
 ]);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -149,6 +156,7 @@ function startLocal() {
 }
 // ---------- Lambda entry ----------
 const handler = (event, context) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     // Handle EventBridge warm-up ping (every 5 minutes)
     if (event.action === 'warmup') {
         console.log('🔥 Warm-up ping received');
@@ -212,6 +220,15 @@ const handler = (event, context) => __awaiter(void 0, void 0, void 0, function* 
                 })
             };
         }
+    }
+    if (((_b = (_a = event.Records) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.eventSource) === 'aws:sqs') {
+        const body = JSON.parse(event.Records[0].body);
+        console.log(`🎙️ TTS Worker processing: prayer=${body.prayerId}`);
+        const dbService = postgres_service_1.PostgresService.getInstance();
+        yield dbService.connect({ max: 1, connectionTimeoutMillis: 5000 });
+        s3_service_1.S3Service.initialize();
+        yield audioService_1.AudioService.generateAndStore(body.prayerId, body.text, body.voiceId, body.userId);
+        return { statusCode: 200 };
     }
     // Otherwise, handle normal HTTP requests via serverless-express
     try {

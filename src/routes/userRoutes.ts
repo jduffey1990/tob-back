@@ -346,7 +346,7 @@ export const userRoutes : ServerRoute[] = [
       auth: 'jwt',
       validate: {
         payload: Joi.object({
-          voiceIndex: Joi.number().integer().min(0).max(8).optional(),
+          selectedVoiceId: Joi.string().optional(),
           playbackRate: Joi.number().min(0).max(1).optional(),
         }),
         failAction: async (request, h, err) => { throw err; },

@@ -21,10 +21,10 @@ export const ttsRoutes: ServerRoute[] = [
         const userInfo = await UserService.getUserInfo(authUser.id);
         
         // Get all voices available to this user's tier
-        const availableVoices = TTSService.getVoicesForTier(userInfo.subscriptionTier);
-        
+        const availableVoices = await TTSService.getVoicesForTier(userInfo.subscriptionTier);
+
         // Get ALL voices (to show locked ones in UI)
-        const allVoices = TTSService.getAvailableVoices();
+        const allVoices = await TTSService.getAvailableVoices();
         
         return h.response({
           userTier: userInfo.subscriptionTier,
@@ -129,7 +129,7 @@ export const ttsRoutes: ServerRoute[] = [
       try {
         const { voiceId } = request.params;
         
-        const voice = TTSService.getVoiceById(voiceId);
+        const voice = await TTSService.getVoiceById(voiceId);
         
         if (!voice) {
           return h.response({ error: 'Voice not found' }).code(404);

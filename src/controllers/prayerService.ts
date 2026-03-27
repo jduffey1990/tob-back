@@ -27,20 +27,20 @@ function mapRowToPrayer(row: any): Prayer {
 }
 
 // Map db row with audio_files JOIN -> Prayer (resolves voice_name from voice_id)
-function mapRowToPrayerWithAudio(row: any): Prayer {
+async function mapRowToPrayerWithAudio(row: any): Promise<Prayer> {
   const prayer = mapRowToPrayer(row);
   // Resolve voice name from voice_id if audio exists
   if (row.voice_id) {
-    const voice = TTSService.getVoiceById(row.voice_id);
+    const voice = await TTSService.getVoiceById(row.voice_id);
     prayer.voiceName = voice?.name ?? null;
   }
   return prayer;
 }
 
 // Map db row -> FlockPrayerWithLeader (for feed queries)
-function mapRowToFlockPrayerWithLeader(row: any): FlockPrayerWithLeader {
+async function mapRowToFlockPrayerWithLeader(row: any): Promise<FlockPrayerWithLeader> {
   return {
-    ...mapRowToPrayerWithAudio(row),
+    ...(await mapRowToPrayerWithAudio(row)),
     leaderName: row.leader_name,
     flockName: row.flock_name,
   };
@@ -246,7 +246,7 @@ export class PrayerService {
        ORDER BY p.published_at DESC`,
       [leaderUserId]
     );
-    return rows.map(mapRowToPrayerWithAudio);
+    return Promise.all(rows.map(mapRowToPrayerWithAudio));
   }
 
   /**
@@ -275,7 +275,7 @@ export class PrayerService {
        ORDER BY p.published_at DESC`,
       [memberUserId]
     );
-    return rows.map(mapRowToFlockPrayerWithLeader);
+    return Promise.all(rows.map(mapRowToFlockPrayerWithLeader));
   }
 
   /**
@@ -303,7 +303,7 @@ export class PrayerService {
        LIMIT 1`,
       [prayerId]
     );
-    return rows[0] ? mapRowToFlockPrayerWithLeader(rows[0]) : null;
+    return rows[0] ? await mapRowToFlockPrayerWithLeader(rows[0]) : null;
   }
 
   /**

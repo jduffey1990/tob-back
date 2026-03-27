@@ -254,6 +254,36 @@ exports.userRoutes = [
             description: '⚠️ DEV ONLY: Permanently delete user'
         },
     },
+    // ============================================
+    // DELETE /users/me - Soft delete authenticated user's account
+    // Sets deleted_at timestamp; hard delete occurs after 30 days via EventBridge cleanup
+    // ============================================
+    {
+        method: 'DELETE',
+        path: '/users/me',
+        handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const authUser = request.auth.credentials;
+                if (!(authUser === null || authUser === void 0 ? void 0 : authUser.id)) {
+                    return h.response({ error: 'Unauthorized' }).code(401);
+                }
+                yield userService_1.UserService.softDelete(authUser.id);
+                return h.response({
+                    success: true,
+                    message: 'Your account has been scheduled for deletion. Your data will be permanently removed after 30 days. If you log back in before then, contact support to restore your account.',
+                }).code(200);
+            }
+            catch (error) {
+                console.error('Account deletion error:', error);
+                return h.response({ error: error.message || 'Failed to delete account' }).code(500);
+            }
+        }),
+        options: {
+            auth: 'jwt',
+            description: 'Soft delete the authenticated user account (30-day retention)',
+            tags: ['api', 'users'],
+        },
+    },
     // PATCH /users/me/settings - Update authenticated user's settings
     {
         method: 'PATCH',

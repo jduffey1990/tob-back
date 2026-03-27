@@ -57,6 +57,7 @@ resource "aws_lambda_function" "main" {
       AZURE_TTS_API_KEY = var.azure_tts_api_key
       AZURE_TTS_REGION  = var.azure_tts_region
       FISH_API_KEY      = var.fish_api_key
+      # CARTESIA_API_KEY  = var.cartesia_api_key  # commented out — may revisit
       
       # Email & App URLs
       APP_URL      = var.app_url

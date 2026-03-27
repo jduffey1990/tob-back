@@ -265,12 +265,14 @@ export const flockRoutes: ServerRoute[] = [
         });
 
         // Resolve voice: use provided voiceId, or fall back to user's preferred voice
-        const resolvedVoiceId = voiceId
-          || TTSService.getAvailableVoices()[authUser.settings?.voiceIndex ?? 0]?.id;
+        const resolvedVoiceId = voiceId || authUser.settings?.selectedVoiceId;
 
-        if (resolvedVoiceId && TTSService.getVoiceById(resolvedVoiceId)?.provider !== 'apple') {
-          console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
-          AudioService.generateInBackground(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
+        if (resolvedVoiceId) {
+          const resolvedVoice = await TTSService.getVoiceById(resolvedVoiceId);
+          if (resolvedVoice && resolvedVoice.provider !== 'apple') {
+            console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
+            AudioService.generateInBackground(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
+          }
         }
 
         return h.response(prayer).code(201);

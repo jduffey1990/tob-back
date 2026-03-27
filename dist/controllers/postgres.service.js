@@ -8,10 +8,15 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PostgresService = void 0;
 // users/src/controllers/postgres.service.ts
 const pg_1 = require("pg");
+const serverless_1 = require("@neondatabase/serverless");
+const ws_1 = __importDefault(require("ws"));
 // Threshold in ms — any query slower than this gets a warning log
 const SLOW_QUERY_THRESHOLD_MS = 500;
 class PostgresService {
@@ -33,6 +38,17 @@ class PostgresService {
             return this.pool;
         const useUrl = process.env.DATABASE_URL;
         const isProd = process.env.NODE_ENV === 'production';
+        const isLambda = isProd || !!process.env.LAMBDA_TASK_ROOT;
+        // Pick the right Pool constructor
+        // Neon's Pool is API-identical to pg's Pool — same .query(), .connect(), .end()
+        let PoolConstructor;
+        if (isLambda && useUrl) {
+            serverless_1.neonConfig.webSocketConstructor = ws_1.default;
+            PoolConstructor = serverless_1.Pool;
+        }
+        else {
+            PoolConstructor = pg_1.Pool;
+        }
         const base = useUrl
             ? {
                 connectionString: useUrl,
@@ -46,7 +62,7 @@ class PostgresService {
                 password: process.env.PGPASSWORD || 'tobapp',
                 database: process.env.PGDATABASE || 'towerofbabble',
             };
-        this.pool = new pg_1.Pool(Object.assign(Object.assign({}, base), config));
+        this.pool = new PoolConstructor(Object.assign(Object.assign({}, base), config));
         this.pool.on('error', (err) => {
             console.error(JSON.stringify({
                 level: 'error',

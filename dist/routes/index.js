@@ -11,6 +11,9 @@ const redisRoutes_1 = require("./redisRoutes");
 const audioRoutes_1 = require("./audioRoutes");
 const passwordResetRoutes_1 = require("./passwordResetRoutes");
 const denominationRoutes_1 = require("./denominationRoutes");
+const appleRoutes_1 = require("./appleRoutes");
+const playlistRoutes_1 = require("./playlistRoutes");
+const flockRoutes_1 = require("./flockRoutes");
 exports.default = [
     ...userRoutes_1.userRoutes,
     ...loginRoutes_1.homeRoutes,
@@ -22,5 +25,8 @@ exports.default = [
     ...redisRoutes_1.redisRoutes,
     ...audioRoutes_1.audioRoutes,
     ...passwordResetRoutes_1.passwordResetRoutes,
-    ...denominationRoutes_1.denominationRoutes
+    ...denominationRoutes_1.denominationRoutes,
+    ...appleRoutes_1.appleRoutes,
+    ...playlistRoutes_1.playlistRoutes,
+    ...flockRoutes_1.flockRoutes
 ];

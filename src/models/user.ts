@@ -4,7 +4,7 @@
  * User settings stored in JSONB column
  */
 export interface UserSettings {
-  voiceIndex: number;        // 0-8 depending on tier (0=default)
+  selectedVoiceId: string;   // voice ID from voices table
   playbackRate: number;      // 0.0-1.0, where 0.5 = normal iOS speech rate
 }
 
@@ -12,7 +12,7 @@ export interface UserSettings {
  * Default settings for new users
  */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
-  voiceIndex: 0,
+  selectedVoiceId: 'com.apple.voice.compact.en-US.Samantha',
   playbackRate: 0.5
 };
 

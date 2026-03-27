@@ -47,6 +47,14 @@ exports.loginRoutes = [
                         message: 'Please verify your email to activate your account.',
                     }).code(403);
                 }
+                // Block soft-deleted users from logging in
+                if (user && user.deletedAt) {
+                    console.log('❌ User account deleted:', email);
+                    return h.response({
+                        error: 'ACCOUNT_DELETED',
+                        message: 'This account has been deleted. If this was a mistake, please contact support within 30 days.',
+                    }).code(403);
+                }
                 if (user) {
                     console.log('✅ Login successful:', email);
                     return h.response({ token, user: user }).code(200);

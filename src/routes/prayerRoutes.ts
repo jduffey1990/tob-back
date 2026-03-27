@@ -113,17 +113,18 @@ export const prayerRoutes: ServerRoute[] = [
           
 
           // Auto-trigger TTS for the user's current voice (fire-and-forget)
-          const voices = TTSService.getAvailableVoices();
-          const currentVoice = voices[authUser.settings?.voiceIndex ?? 0] ?? null;
-
-          if (currentVoice && currentVoice.provider !== 'apple') {
-            console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
-            AudioService.generateInBackground(
-              newPrayer.id,
-              text,
-              currentVoice.id,
-              authUser.id
-            );
+          const selectedVoiceId = authUser.settings?.selectedVoiceId;
+          if (selectedVoiceId) {
+            const currentVoice = await TTSService.getVoiceById(selectedVoiceId);
+            if (currentVoice && currentVoice.provider !== 'apple') {
+              console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
+              AudioService.generateInBackground(
+                newPrayer.id,
+                text,
+                currentVoice.id,
+                authUser.id
+              );
+            }
           }
 
           return h.response(newPrayer).code(201);

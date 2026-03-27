@@ -12,7 +12,7 @@ export interface TTSResponse {
   audioData: string;        // base64-encoded MP3
   audioFormat: 'mp3';
   voiceUsed: string;
-  provider: 'apple' | 'azure' | 'fishaudio';
+  provider: 'apple' | 'azure' | 'fishaudio'; // | 'cartesia' — commented out, may revisit
   metadata: {
     characterCount: number;
     estimatedCost: number;  // in USD
@@ -34,7 +34,9 @@ export interface VoiceOption {
   gender?: 'male' | 'female' | 'neutral';
   description?: string;
   tier: 'free' | 'pro' | 'prayer_warrior';
-  provider: 'apple' | 'azure' | 'fishaudio';
-  file?: string | null;
-  previewUrl?: string;  // URL to a sample audio file (for iOS to cache)
+  provider: 'apple' | 'azure' | 'fishaudio'; // | 'cartesia' — commented out, may revisit
+  previewUrl?: string | null;
+  previewText?: string;
+  isActive: boolean;
+  sortOrder: number;
 }

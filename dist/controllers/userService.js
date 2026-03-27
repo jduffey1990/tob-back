@@ -14,6 +14,7 @@ exports.UserService = void 0;
 const postgres_service_1 = require("./postgres.service");
 const user_1 = require("../models/user");
 const s3_service_1 = require("./s3.service");
+const ttsService_1 = require("./ttsService");
 const AppErrors_1 = require("../errors/AppErrors");
 // Map db row -> UserSafe (snake_case -> camelCase)
 function mapRowToUserSafe(row) {
@@ -134,16 +135,25 @@ class UserService {
         });
     }
     /**
-     * NEW: Update user settings (voiceIndex, playbackRate)
+     * Update user settings (selectedVoiceId, playbackRate)
      * Uses JSONB merge operator (||) to update only provided fields
      */
     static updateSettings(userId, settingsUpdate) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            // Validate voiceIndex if provided
-            if (settingsUpdate.voiceIndex !== undefined) {
-                if (settingsUpdate.voiceIndex < 0 || settingsUpdate.voiceIndex > 8) {
-                    throw new AppErrors_1.ValidationError('voiceIndex must be between 0 and 8');
+            // Validate selectedVoiceId if provided
+            if (settingsUpdate.selectedVoiceId !== undefined) {
+                const voice = yield ttsService_1.TTSService.getVoiceById(settingsUpdate.selectedVoiceId);
+                if (!voice) {
+                    throw new AppErrors_1.ValidationError(`Voice '${settingsUpdate.selectedVoiceId}' not found`);
+                }
+                // Check tier: get user's current tier
+                const userResult = yield db.query('SELECT subscription_tier FROM users WHERE id = $1::uuid', [userId]);
+                if (userResult.rows.length === 0)
+                    throw new AppErrors_1.NotFoundError('User');
+                const userTier = userResult.rows[0].subscription_tier;
+                if (!ttsService_1.TTSService.canUserUseVoice(userTier, voice)) {
+                    throw new AppErrors_1.ValidationError(`Voice '${voice.name}' requires ${voice.tier} tier or higher`);
                 }
             }
             // Validate playbackRate if provided

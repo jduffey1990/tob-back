@@ -14,17 +14,24 @@ import {NotFoundError, ValidationError, ExternalServiceError, LimitReachedError}
 
 export class TTSService {
 
-  // Simple retry helper
+  // Retry helper — retries on transient network errors and timeouts
   private static async callWithRetry<T>(
     fn: () => Promise<T>,
     retries: number = 1,
-    delayMs: number = 2000
+    delayMs: number = 3000
   ): Promise<T> {
     try {
       return await fn();
     } catch (error: any) {
-      if (retries > 0 && (error.code === 'ECONNRESET' || error.message?.includes('socket hang up'))) {
-        console.log(`🔄 [TTSService] Retrying after ${delayMs}ms (${retries} retries left)`);
+      const isRetryable =
+        error.code === 'ECONNRESET' ||
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.message?.includes('socket hang up') ||
+        error.message?.includes('timeout');
+
+      if (retries > 0 && isRetryable) {
+        console.log(`🔄 [TTSService] Retrying after ${delayMs}ms (${retries} retries left) — ${error.message}`);
         await new Promise(r => setTimeout(r, delayMs));
         return this.callWithRetry(fn, retries - 1, delayMs);
       }
@@ -52,7 +59,7 @@ export class TTSService {
     console.log(`   User tier: ${tier}`);
     
     // 2. Validate voice is allowed for this tier
-    const voice = this.getVoiceById(request.voiceId);
+    const voice = await this.getVoiceById(request.voiceId);
     if (!voice) {
       throw new ValidationError(`Voice ${request.voiceId} not found`);
     }
@@ -80,7 +87,11 @@ export class TTSService {
           // NEW: Use WebSocket streaming instead of REST API
           ({ audioData, estimatedCost } = await this.generateFishAudioTTS(request.text, voice));
           break;
-          
+
+        // case 'cartesia':
+        //   ({ audioData, estimatedCost } = await this.generateCartesiaTTS(request.text, voice));
+        //   break;
+
         default:
           throw new Error(`Unknown provider: ${voice.provider}`);
       }
@@ -200,7 +211,7 @@ export class TTSService {
             'model': 's1'
           },
           responseType: 'arraybuffer',
-          timeout: 55000  // 55 seconds - fail before Lambda times out
+          timeout: 50000  // 50 seconds per attempt — allows 1 retry within 120s Lambda limit
         })
       );
 
@@ -221,149 +232,136 @@ export class TTSService {
     }
   }
   
+  // /**
+  //  * Generate audio using Cartesia TTS API
+  //  * Commented out — may revisit Cartesia later.
+  //  */
+  // private static async generateCartesiaTTS(
+  //   text: string,
+  //   voice: VoiceOption
+  // ): Promise<{ audioData: string; estimatedCost: number }> {
+  //
+  //   const cartesiaKey = process.env.CARTESIA_API_KEY;
+  //
+  //   if (!cartesiaKey) {
+  //     throw new ExternalServiceError('Cartesia', 'API key not configured');
+  //   }
+  //
+  //   console.log(`🟣 [TTSService] Calling Cartesia TTS...`);
+  //   console.log(`   Voice: ${voice.name} (${voice.id})`);
+  //
+  //   try {
+  //     const url = 'https://api.cartesia.ai/tts/bytes';
+  //
+  //     const requestBody = {
+  //       model_id: 'sonic-2',
+  //       transcript: text,
+  //       voice: {
+  //         mode: 'id',
+  //         id: voice.id,
+  //       },
+  //       output_format: {
+  //         container: 'mp3',
+  //         sample_rate: 44100,
+  //         bit_rate: 128000,
+  //       },
+  //     };
+  //
+  //     const response = await this.callWithRetry(() =>
+  //       axios.post(url, requestBody, {
+  //         headers: {
+  //           'Cartesia-Version': '2025-04-16',
+  //           'X-API-Key': cartesiaKey,
+  //           'Content-Type': 'application/json',
+  //         },
+  //         responseType: 'arraybuffer',
+  //         timeout: 30000,
+  //       })
+  //     );
+  //
+  //     const audioData = Buffer.from(response.data).toString('base64');
+  //
+  //     // Cartesia pricing: ~$8 per 1M characters (estimate)
+  //     const estimatedCost = (text.length / 1_000_000) * 8;
+  //
+  //     console.log(`✅ [TTSService] Cartesia TTS complete — ${Buffer.byteLength(response.data)} bytes`);
+  //
+  //     return { audioData, estimatedCost };
+  //
+  //   } catch (error: any) {
+  //     if (error.response?.status === 401) {
+  //       throw new ExternalServiceError('Cartesia', 'Invalid API key');
+  //     }
+  //     if (error.response?.status === 402) {
+  //       throw new ExternalServiceError('Cartesia', 'Insufficient balance');
+  //     }
+  //     throw new ExternalServiceError('Cartesia', error.message);
+  //   }
+  // }
+
+  private static readonly TIER_HIERARCHY: Record<string, number> = {
+    'free': 0,
+    'pro': 1,
+    'prayer_warrior': 2,
+    'lifetime': 3
+  };
+
   /**
    * Check if a user's tier allows them to use a specific voice
    */
-  private static canUserUseVoice(userTier: string, voice: VoiceOption): boolean {
-    const tierHierarchy: Record<string, number> = {
-      'free': 0,
-      'pro': 1,
-      'prayer_warrior': 2,
-      'lifetime': 3
-    };
-    
-    const userLevel = tierHierarchy[userTier.toLowerCase()] ?? 0;
-    const voiceLevel = tierHierarchy[voice.tier.toLowerCase()] ?? 0;
-    
+  static canUserUseVoice(userTier: string, voice: VoiceOption): boolean {
+    const userLevel = this.TIER_HIERARCHY[userTier.toLowerCase()] ?? 0;
+    const voiceLevel = this.TIER_HIERARCHY[voice.tier.toLowerCase()] ?? 0;
     return userLevel >= voiceLevel;
   }
-  
+
   /**
-   * Get all available voices
+   * Map a DB row to a VoiceOption
    */
-  static getAvailableVoices(): VoiceOption[] {
-    return [
-      // FREE TIER - Apple Voices (handled client-side)
-      {
-        id: 'com.apple.voice.compact.en-US.Samantha',
-        name: 'Samantha',
-        language: 'en-US',
-        gender: 'female',
-        description: 'Natural American English voice',
-        tier: 'free',
-        provider: 'apple'
-      },
-      {
-        id: 'com.apple.voice.compact.en-GB.Daniel',
-        name: 'Daniel',
-        language: 'en-GB',
-        gender: 'male',
-        description: 'British English voice',
-        tier: 'free',
-        provider: 'apple'
-      },
-      {
-        id: 'com.apple.voice.compact.en-IE.Moira',
-        name: 'Moira',
-        language: 'en-IE',
-        gender: 'female',
-        description: 'Irish English voice',
-        tier: 'free',
-        provider: 'apple'
-      },
-      
-      // PRO TIER - Azure Voices
-      {
-        id: 'en-US-JennyNeural',
-        name: 'Jenny',
-        language: 'en-US',
-        gender: 'female',
-        description: 'Warm and friendly American voice',
-        tier: 'pro',
-        provider: 'azure',
-        file: 'jenny_neural'
-      },
-      {
-        id: 'en-US-GuyNeural',
-        name: 'Guy',
-        language: 'en-US',
-        gender: 'male',
-        description: 'Professional American voice',
-        tier: 'pro',
-        provider: 'azure',
-        file: 'guy_neural'
-      },
-      {
-        id: 'en-GB-SoniaNeural',
-        name: 'Sonia',
-        language: 'en-GB',
-        gender: 'female',
-        description: 'Clear British voice',
-        tier: 'pro',
-        provider: 'azure',
-        file: 'sonia_neural'
-      },
-      {
-        id: 'en-GB-RyanNeural',
-        name: 'Ryan',
-        language: 'en-GB',
-        gender: 'male',
-        description: 'Authoritative British voice',
-        tier: 'prayer_warrior',
-        provider: 'azure',
-        file: 'ryan_neural'
-      },
-      
-      // WARRIOR TIER - Fish Audio Voices
-      {
-        id: 'b347db033a6549378b48d00acb0d06cd',
-        name: 'Selene',
-        language: 'en-US',
-        gender: 'neutral',
-        description: 'Natural AI voice with emotion control',
-        tier: 'prayer_warrior',
-        provider: 'fishaudio',
-        file: 'selene_preview'
-      },
-      {
-        id: '6ccd48c2891d409092b298dc34db0480',
-        name: 'Jordan (App Creator Voice)',
-        language: 'en-US',
-        gender: 'male',
-        description: 'Personal cloned voice',
-        tier: 'prayer_warrior',
-        provider: 'fishaudio',
-        file: 'jordan_preview'
-      },
-      {
-        id: 'f273648b2f6242d4bf6ede2ccc4a525a',
-        name: 'Golem',
-        language: 'en-US',
-        gender: 'male',
-        description: 'Sneak from LOTR',
-        tier: 'prayer_warrior',
-        provider: 'fishaudio',
-        file: 'golem_preview'
-      }
-    ];
+  private static mapRowToVoice(row: any): VoiceOption {
+    return {
+      id: row.id,
+      name: row.name,
+      language: row.language,
+      gender: row.gender,
+      description: row.description,
+      tier: row.tier,
+      provider: row.provider,
+      previewUrl: row.preview_url,
+      previewText: row.preview_text,
+      isActive: row.is_active,
+      sortOrder: row.sort_order,
+    };
   }
-  
+
+  /**
+   * Get all active voices from DB
+   */
+  static async getAvailableVoices(): Promise<VoiceOption[]> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query(
+      `SELECT * FROM voices WHERE is_active = true ORDER BY sort_order`
+    );
+    return rows.map(this.mapRowToVoice);
+  }
+
   /**
    * Get a specific voice by ID
    */
-  static getVoiceById(voiceId: string): VoiceOption | null {
-    const voices = this.getAvailableVoices();
-    return voices.find(v => v.id === voiceId) || null;
+  static async getVoiceById(voiceId: string): Promise<VoiceOption | null> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query(
+      `SELECT * FROM voices WHERE id = $1 AND is_active = true LIMIT 1`,
+      [voiceId]
+    );
+    return rows[0] ? this.mapRowToVoice(rows[0]) : null;
   }
-  
+
   /**
    * Get voices available to a specific user based on their tier
    */
-  static getVoicesForTier(tier: string): VoiceOption[] {
-    const allVoices = this.getAvailableVoices();
-    
-    return allVoices.filter(voice => {
-      return this.canUserUseVoice(tier, voice);
-    });
+  static async getVoicesForTier(tier: string): Promise<VoiceOption[]> {
+    const allVoices = await this.getAvailableVoices();
+    return allVoices.filter(voice => this.canUserUseVoice(tier, voice));
   }
 }
