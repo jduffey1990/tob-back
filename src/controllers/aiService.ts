@@ -177,10 +177,11 @@ export class AIService {
   ): Promise<OpenAIResponse> {
     
     const systemPrompt = this.buildSystemPrompt(
-      request.prayerType, 
-      request.tone, 
+      request.prayerType,
+      request.tone,
       denomination,
-      isDenominationOverride
+      isDenominationOverride,
+      request.length
     );
     const userPrompt = this.buildUserPrompt(request);
     const maxTokens = this.getMaxTokensForLength(request.length);
@@ -207,25 +208,41 @@ export class AIService {
    * Build system prompt based on prayer type, tone, and denomination
    * NEW: Includes instruction ranking/priority system
    */
+  /**
+   * Get word count guidance for the system prompt based on prayer length
+   */
+  private static getLengthGuidance(length: string): string {
+    const guidance: Record<string, string> = {
+      brief: 'Keep this prayer BRIEF: approximately 80-120 words. Be concise and purposeful.',
+      standard: 'This should be a STANDARD-length prayer: approximately 150-200 words. Thorough but not excessive.',
+      extended: 'This is an EXTENDED prayer: approximately 300-350 words. Be detailed and expansive.'
+    };
+    return guidance[length] || guidance.standard;
+  }
+
   private static buildSystemPrompt(
-    prayerType: string, 
+    prayerType: string,
     tone: string,
     denomination: string,
-    isDenominationOverride: boolean = false
+    isDenominationOverride: boolean = false,
+    length: string = 'standard'
   ): string {
-    
-    // NEW: Instruction Priority/Ranking System
+
+    // Instruction Priority/Ranking System
     const priorityRules = `
       INSTRUCTION PRIORITY HIERARCHY (Highest → Lowest):
-      1. HARD CONSTRAINTS: You must NEVER exceed the token limit. This is non-negotiable.
+      1. HARD CONSTRAINTS: You MUST complete the prayer with a proper closing (e.g., "Amen", "R'Amen", or the appropriate closing for the tradition). A prayer that ends mid-sentence is unacceptable. Budget your words so the prayer reaches a natural, complete ending.
       2. USER CONTEXT: If the user's additional context contradicts their profile denomination or settings, honor their context.
       3. USER SETTINGS: Respect the prayer type, tone, and length settings.
       ${isDenominationOverride ? '4. User requested different tradition - honor it' : ''}`;
-    
-    // Base prompt now includes denomination and priority rules
+
+    // Base prompt now includes denomination, priority rules, and length guidance
     const basePrompt = `You are a prayer writer. Generate in ${denomination} style. ${this.getDenominationGuidance(denomination)}
 
     ${priorityRules}
+
+    LENGTH: ${this.getLengthGuidance(length)}
+    CRITICAL: Always finish the prayer completely with an appropriate closing. Never leave a prayer incomplete or cut off mid-sentence.
 
     Use clear punctuation optimized for Text-To-Speech.`;
   
@@ -419,12 +436,12 @@ export class AIService {
    */
   private static getMaxTokensForLength(length: string): number {
     const tokenLimits: Record<string, number> = {
-      brief: 200,      // ~150 words
-      standard: 400,   // ~300 words
-      extended: 600    // ~450 words
+      brief: 350,      
+      standard: 550,   
+      extended: 800   
     };
-    
-    return tokenLimits[length] || 400;
+
+    return tokenLimits[length] || 550;
   }
   
   /**
