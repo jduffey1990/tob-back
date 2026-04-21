@@ -1,3 +1,15 @@
 github_token         = "ghp_xxxxxxxxxxxx"
 database_url         = "postgresql://user:pass@host:5432/db"
 jwt_secret          = "your-secret-here"
+
+# APNs (flock prayer push notifications)
+# apns_auth_key is the contents of AuthKey_XXXXXXXXXX.p8 — include the BEGIN/END lines.
+apns_auth_key = <<EOT
+-----BEGIN PRIVATE KEY-----
+MIGTAgEA...rest of key...
+-----END PRIVATE KEY-----
+EOT
+apns_key_id      = "ABC123DEFG"            # 10-char key ID (from the .p8 filename)
+apns_team_id     = "1A2B3C4D5E"            # 10-char Apple Developer Team ID
+apns_bundle_id   = "com.foxdog.TowerOfBabble"
+apns_environment = "production"            # sandbox | production | disabled

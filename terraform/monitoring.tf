@@ -129,14 +129,56 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx" {
   statistic           = "Sum"
   threshold           = 10
   treat_missing_data  = "notBreaching"
-  
+
   dimensions = {
     ApiId = aws_apigatewayv2_api.main.id
   }
-  
+
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
-  
+
+  tags = merge(local.common_tags, {
+    Type = "cloudwatch-alarm"
+  })
+}
+
+# ============================================
+# ALARM 5: Flock Push Delivery Failures
+# ============================================
+# Extracts `flock_push_failed` log lines from the main Lambda's structured
+# JSON logs into a custom metric, then alarms on any occurrence in a 5-min
+# window. Catches APNs misconfig, malformed PEM, unreachable Apple hosts,
+# or DB failures during fan-out.
+
+resource "aws_cloudwatch_log_metric_filter" "flock_push_failed" {
+  name           = "${var.service_name}-flock-push-failed"
+  log_group_name = "/aws/lambda/${aws_lambda_function.main.function_name}"
+  pattern        = "{ $.type = \"flock_push_failed\" }"
+
+  metric_transformation {
+    name          = "FlockPushFailed"
+    namespace     = "TowerOfBabble/Push"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "flock_push_failed" {
+  alarm_name          = "${var.service_name}-flock-push-failed"
+  alarm_description   = "Flock prayer push fan-out failed at least once in the last 5 minutes"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.flock_push_failed.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.flock_push_failed.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
   tags = merge(local.common_tags, {
     Type = "cloudwatch-alarm"
   })

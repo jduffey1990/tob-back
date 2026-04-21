@@ -5,13 +5,13 @@ import { PlaylistService } from '../controllers/playlistService';
 import { UserService } from '../controllers/userService';
 import type { UserSafe } from '../models/user';
 
-const PLAYLIST_TIERS = ['prayer_warrior', 'lifetime'];
+const PLAYLIST_TIERS = ['pro', 'prayer_warrior', 'lifetime'];
 
 async function requirePlaylistTier(userId: string): Promise<string> {
   const userInfo = await UserService.getUserInfo(userId);
   if (!PLAYLIST_TIERS.includes(userInfo.subscriptionTier)) {
     throw Object.assign(
-      new Error('Playlists are available on the Prayer Warrior and Lifetime plans.'),
+      new Error('Playlists are available on the Pro, Prayer Warrior, and Lifetime plans.'),
       { code: 'TIER_REQUIRED' }
     );
   }
@@ -40,7 +40,7 @@ export const playlistRoutes: ServerRoute[] = [
     options: {
       auth: 'jwt',
       description: 'List all playlists for the authed user',
-      notes: 'Requires prayer_warrior or lifetime tier',
+      notes: 'Requires pro, prayer_warrior, or lifetime tier',
       tags: ['api', 'playlists'],
     },
   },
@@ -83,7 +83,7 @@ export const playlistRoutes: ServerRoute[] = [
     options: {
       auth: 'jwt',
       description: 'Create a new playlist',
-      notes: 'Requires prayer_warrior or lifetime tier. prayerIds array order defines playback position.',
+      notes: 'Requires pro, prayer_warrior, or lifetime tier. prayerIds array order defines playback position.',
       tags: ['api', 'playlists'],
     },
   },

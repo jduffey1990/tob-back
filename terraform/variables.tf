@@ -179,3 +179,41 @@ variable "admin_stats_email" {
   type        = string
   sensitive   = true
 }
+
+# ============================================
+# APNs - Apple Push Notifications (flock prayer pushes)
+# ============================================
+
+variable "apns_auth_key" {
+  description = "PEM contents of the APNs .p8 auth key (including BEGIN/END lines)"
+  type        = string
+  sensitive   = true
+}
+
+variable "apns_key_id" {
+  description = "10-character APNs key ID (from the .p8 filename)"
+  type        = string
+  sensitive   = true
+}
+
+variable "apns_team_id" {
+  description = "10-character Apple Developer Team ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "apns_bundle_id" {
+  description = "iOS app bundle identifier (e.g. com.foxdog.TowerOfBabble)"
+  type        = string
+}
+
+variable "apns_environment" {
+  description = "APNs environment: sandbox, production, or disabled (kill switch)"
+  type        = string
+  default     = "production"
+
+  validation {
+    condition     = contains(["sandbox", "production", "disabled"], var.apns_environment)
+    error_message = "apns_environment must be sandbox, production, or disabled."
+  }
+}

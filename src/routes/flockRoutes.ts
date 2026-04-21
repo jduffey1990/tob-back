@@ -8,6 +8,7 @@ import { AudioService } from '../controllers/audioService';
 import { TTSService } from '../controllers/ttsService';
 import { PrayOnItService } from '../controllers/prayOnItService';
 import { PrayOnItCategory } from '../models/prayOnItItem';
+import { NotificationService } from '../controllers/notificationService';
 import type { UserSafe } from '../models/user';
 
 const FLOCK_LEADER_TIERS = ['prayer_warrior', 'lifetime'];
@@ -274,6 +275,16 @@ export const flockRoutes: ServerRoute[] = [
             AudioService.generateInBackground(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
           }
         }
+
+        // Fire-and-forget push fan-out to flock members. Must not block or fail the
+        // prayer post — mirrors the AudioService.generateInBackground pattern above.
+        NotificationService.notifyFlockOfNewPrayer(
+          flock.id,
+          { id: prayer.id, title: prayer.title, flockId: flock.id },
+          authUser.name
+        ).catch((err) => {
+          console.error('[flocks] push fan-out failed (non-fatal):', err?.message || err);
+        });
 
         return h.response(prayer).code(201);
       } catch (error: any) {

@@ -78,6 +78,13 @@ resource "aws_lambda_function" "main" {
 
       # Admin Stats
       ADMIN_STATS_EMAIL = var.admin_stats_email
+
+      # APNs push notifications (flock prayer pings)
+      APNS_AUTH_KEY    = var.apns_auth_key
+      APNS_KEY_ID      = var.apns_key_id
+      APNS_TEAM_ID     = var.apns_team_id
+      APNS_BUNDLE_ID   = var.apns_bundle_id
+      APNS_ENVIRONMENT = var.apns_environment
     }
   }
   

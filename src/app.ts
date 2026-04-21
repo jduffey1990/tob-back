@@ -24,6 +24,7 @@ import { denominationRoutes } from './routes/denominationRoutes'
 import { appleRoutes } from './routes/appleRoutes'
 import { playlistRoutes } from './routes/playlistRoutes'
 import { flockRoutes } from './routes/flockRoutes'
+import { deviceRoutes } from './routes/deviceRoutes'
 import requestLoggerPlugin from './plugins/requestLogger'
 
 dotenv.config()
@@ -57,7 +58,8 @@ const allRoutes = asServerRoutes([
   ...denominationRoutes as unknown as ServerRoute[],
   ...appleRoutes as unknown as ServerRoute[],
   ...playlistRoutes as unknown as ServerRoute[],
-  ...flockRoutes as unknown as ServerRoute[]
+  ...flockRoutes as unknown as ServerRoute[],
+  ...deviceRoutes as unknown as ServerRoute[]
 ])
 
 async function buildServer() {

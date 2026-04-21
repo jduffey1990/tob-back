@@ -12,6 +12,7 @@ import { denominationRoutes } from './denominationRoutes';
 import { appleRoutes } from './appleRoutes';
 import { playlistRoutes } from './playlistRoutes'
 import { flockRoutes } from './flockRoutes'
+import { deviceRoutes } from './deviceRoutes'
 
 export default [
   ...userRoutes,
@@ -27,5 +28,6 @@ export default [
   ...denominationRoutes,
   ...appleRoutes,
   ...playlistRoutes,
-  ...flockRoutes
+  ...flockRoutes,
+  ...deviceRoutes
 ];
