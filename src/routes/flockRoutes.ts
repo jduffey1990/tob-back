@@ -272,7 +272,11 @@ export const flockRoutes: ServerRoute[] = [
           const resolvedVoice = await TTSService.getVoiceById(resolvedVoiceId);
           if (resolvedVoice && resolvedVoice.provider !== 'apple') {
             console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
-            AudioService.generateInBackground(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
+            try {
+              await AudioService.enqueueGeneration(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
+            } catch (err: any) {
+              console.error('[flocks] TTS enqueue failed (non-fatal):', err?.message || err);
+            }
           }
         }
 

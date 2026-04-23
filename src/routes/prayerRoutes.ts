@@ -112,18 +112,22 @@ export const prayerRoutes: ServerRoute[] = [
         // After creating the prayer successfully:
           
 
-          // Auto-trigger TTS for the user's current voice (fire-and-forget)
+          // Auto-trigger TTS for the user's current voice (enqueued to worker Lambda)
           const selectedVoiceId = authUser.settings?.selectedVoiceId;
           if (selectedVoiceId) {
             const currentVoice = await TTSService.getVoiceById(selectedVoiceId);
             if (currentVoice && currentVoice.provider !== 'apple') {
               console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
-              AudioService.generateInBackground(
-                newPrayer.id,
-                text,
-                currentVoice.id,
-                authUser.id
-              );
+              try {
+                await AudioService.enqueueGeneration(
+                  newPrayer.id,
+                  text,
+                  currentVoice.id,
+                  authUser.id
+                );
+              } catch (err: any) {
+                console.error('[prayers] TTS enqueue failed (non-fatal):', err?.message || err);
+              }
             }
           }
 

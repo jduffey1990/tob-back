@@ -7,6 +7,9 @@ import { redisService } from './redis.service';
 import { S3Service } from './s3.service';
 import { TTSService } from './ttsService';
 import { AppError, ConflictError, ExternalServiceError } from '../errors/AppErrors';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+
+const sqsClient = new SQSClient({});
 
 export class AudioService {
   
@@ -264,16 +267,34 @@ export class AudioService {
     }
   }
 
-  public static generateInBackground(
+  /**
+   * Hand TTS generation to the worker Lambda via SQS.
+   *
+   * Why SQS and not a floating promise: on Lambda the container freezes
+   * the moment the handler returns, stranding any in-flight async work.
+   * That froze Fish Audio sockets mid-request, producing phantom 50s
+   * timeouts on prayers that were only a few words long. The worker
+   * Lambda runs each SQS message in its own invocation and stays alive
+   * for the full duration, so TTS actually runs to completion.
+   *
+   * Local dev (NODE_ENV=development) runs TTS inline so `npm run dev`
+   * works without AWS. Fire-and-forget is safe there because Node's event
+   * loop doesn't freeze like Lambda's does.
+   */
+  public static async enqueueGeneration(
     prayerId: string,
     text: string,
     voiceId: string,
     userId: string
-  ): void {
-    this.generateAndStore(prayerId, text, voiceId, userId)
-      .catch((error: unknown) => {
+  ): Promise<void> {
+    // Local dev: no SQS, run TTS in-process. Fire-and-forget is safe here
+    // because Node's event loop keeps running after the handler returns —
+    // the Lambda freeze that breaks this pattern in prod does not apply
+    // locally. Preserves the prod UX: fast 201, client polls audio-state.
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🧪 [audioService] Local dev: running TTS inline (fire-and-forget)');
+      this.generateAndStore(prayerId, text, voiceId, userId).catch((error: unknown) => {
         const err = error instanceof Error ? error : new Error(String(error));
-        
         console.error(JSON.stringify({
           level: 'error',
           type: 'background_audio_generation',
@@ -285,5 +306,19 @@ export class AudioService {
           timestamp: new Date().toISOString(),
         }));
       });
+      return;
+    }
+
+    const queueUrl = process.env.TTS_QUEUE_URL;
+    if (!queueUrl) {
+      throw new Error('TTS_QUEUE_URL is not configured');
+    }
+
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify({ prayerId, text, voiceId, userId }),
+    }));
+
+    console.log(`📬 [audioService] Enqueued TTS: prayer=${prayerId} voice=${voiceId}`);
   }
 }

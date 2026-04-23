@@ -5,9 +5,7 @@ import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import Joi from 'joi';
 import { AudioService } from '../controllers/audioService';
 import type { UserSafe } from '../models/user';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
-const sqs = new SQSClient({});
 export const audioRoutes: ServerRoute[] = [
   
   // ============================================
@@ -114,30 +112,13 @@ export const audioRoutes: ServerRoute[] = [
         console.log(`   Voice: ${payload.voiceId}`);
         console.log(`   Text length: ${prayer.text.length} chars`);
         
-        // Fire and forget - generation happens in background
-        if (process.env.NODE_ENV === 'development') {
-          console.log("🧪 Local dev: running TTS worker inline");
-
-          await AudioService.generateAndStore(
-            prayerId,
-            prayer.text,
-            payload.voiceId,
-            authUser.id
-          );
-
-        } else {
-
-          await sqs.send(new SendMessageCommand({
-            QueueUrl: process.env.TTS_QUEUE_URL,
-            MessageBody: JSON.stringify({
-              prayerId,
-              text: prayer.text,
-              voiceId: payload.voiceId,
-              userId: authUser.id
-            })
-          }));
-
-        }
+        // Hand off to the worker Lambda via SQS (or run inline in local dev).
+        await AudioService.enqueueGeneration(
+          prayerId,
+          prayer.text,
+          payload.voiceId,
+          authUser.id
+        );
 
         
         // Return 202 Accepted immediately
