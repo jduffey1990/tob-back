@@ -277,9 +277,6 @@ export class AudioService {
    * Lambda runs each SQS message in its own invocation and stays alive
    * for the full duration, so TTS actually runs to completion.
    *
-   * Local dev (NODE_ENV=development) runs TTS inline so `npm run dev`
-   * works without AWS. Fire-and-forget is safe there because Node's event
-   * loop doesn't freeze like Lambda's does.
    */
   public static async enqueueGeneration(
     prayerId: string,
