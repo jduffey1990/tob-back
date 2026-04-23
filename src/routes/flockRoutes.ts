@@ -276,15 +276,22 @@ export const flockRoutes: ServerRoute[] = [
           }
         }
 
-        // Fire-and-forget push fan-out to flock members. Must not block or fail the
-        // prayer post — mirrors the AudioService.generateInBackground pattern above.
-        NotificationService.notifyFlockOfNewPrayer(
-          flock.id,
-          { id: prayer.id, title: prayer.title, flockId: flock.id },
-          authUser.name
-        ).catch((err) => {
+        // Push fan-out to flock members. Awaited synchronously — on Lambda,
+        // fire-and-forget leaves async work stranded when the container freezes
+        // after the response is sent, causing the next DB connection attempt to
+        // time out against Neon's WebSocket. Errors are caught and logged so a
+        // failed fan-out never breaks the prayer post (the prayer is already
+        // committed at this point). Small added latency (~200-500ms for a small
+        // flock) is worth the delivery reliability.
+        try {
+          await NotificationService.notifyFlockOfNewPrayer(
+            flock.id,
+            { id: prayer.id, title: prayer.title, flockId: flock.id },
+            authUser.name
+          );
+        } catch (err: any) {
           console.error('[flocks] push fan-out failed (non-fatal):', err?.message || err);
-        });
+        }
 
         return h.response(prayer).code(201);
       } catch (error: any) {

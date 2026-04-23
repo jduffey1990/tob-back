@@ -33,6 +33,12 @@ const JWT_TTL_MS = 50 * 60 * 1000;
 // guards against a future 500-member flock saturating the Lambda's sockets.
 const FANOUT_CONCURRENCY = 10;
 
+// Cap on how long we'll wait for a single APNs response before giving up and
+// counting the send as failed. Apple is usually <200ms; 5s is generous.
+// Without this, a hung Apple connection would block the whole fan-out until
+// Lambda's 30s timeout kills the invocation.
+const APNS_REQUEST_TIMEOUT_MS = 5000;
+
 // ============================================
 // Types
 // ============================================
@@ -170,6 +176,24 @@ async function sendOne(
       'content-length': body.length,
     });
 
+    // Guard against double-resolution when the timeout races the response.
+    let settled = false;
+    const finish = (outcome: 'ok' | 'revoke' | 'retry') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(outcome);
+    };
+
+    const timer = setTimeout(() => {
+      logJson('warn', 'apns_request_timeout', {
+        tokenId: target.tokenId,
+        timeoutMs: APNS_REQUEST_TIMEOUT_MS,
+      });
+      try { req.close(); } catch { /* already closed */ }
+      finish('retry');
+    }, APNS_REQUEST_TIMEOUT_MS);
+
     let status = 0;
     let responseBody = '';
 
@@ -179,12 +203,12 @@ async function sendOne(
     req.on('data', (chunk) => { responseBody += chunk.toString(); });
     req.on('end', () => {
       if (status === 200) {
-        resolve('ok');
+        finish('ok');
         return;
       }
       if (status === 410) {
         // Token no longer valid on the device (uninstalled, etc.)
-        resolve('revoke');
+        finish('revoke');
         return;
       }
       if (status === 400) {
@@ -192,25 +216,35 @@ async function sendOne(
         let reason = '';
         try { reason = JSON.parse(responseBody || '{}').reason || ''; } catch { /* ignore */ }
         if (reason === 'BadDeviceToken' || reason === 'DeviceTokenNotForTopic') {
-          resolve('revoke');
+          finish('revoke');
           return;
         }
         logJson('warn', 'apns_bad_request', { status, reason, tokenId: target.tokenId });
-        resolve('retry');
+        finish('retry');
         return;
       }
       logJson('warn', 'apns_non_200', { status, tokenId: target.tokenId, body: responseBody.slice(0, 200) });
-      resolve('retry');
+      finish('retry');
     });
     req.on('error', (err) => {
       logJson('error', 'apns_request_error', { tokenId: target.tokenId, error: err.message });
-      resolve('retry');
+      finish('retry');
     });
 
     req.end(body);
   });
 }
 
+// SCALING NOTE: the fan-out runs inline inside the flock prayer POST handler
+// (see flockRoutes.ts). Roughly budget ~200-300ms per chunk of FANOUT_CONCURRENCY
+// targets. For a flock of N members that's ceil(N / FANOUT_CONCURRENCY) chunks.
+// With N ≈ 100 we're still comfortably under Lambda's 30s timeout; around
+// N ≈ 500 this starts to risk the handler timing out before the fan-out
+// finishes and the prayer post returning 500 to the client. If flocks ever
+// grow past ~100 members in practice, migrate this to an SQS-backed worker
+// Lambda (mirror the TTS worker pattern) so the prayer post can return
+// immediately and delivery happens in a separate invocation that isn't
+// constrained by the API Gateway timeout.
 async function deliverAll(
   targets: DeliveryTarget[],
   payload: ApnsPayload
