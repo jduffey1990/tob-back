@@ -3,6 +3,7 @@ import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import Joi from 'joi';
 import { PrayOnItService } from '../controllers/prayOnItService';
 import { PrayOnItLimitService } from '../controllers/prayOnItLimitService';
+import { GracePeriodService } from '../controllers/gracePeriodService';
 import type { UserSafe } from '../models/user';
 import { PRAY_ON_IT_CATEGORIES } from '../models/prayOnItItem';
 
@@ -87,8 +88,10 @@ export const prayOnItRoutes: ServerRoute[] = [
           notes?: string;
         };
 
-        // Check item limit BEFORE creating
+        // Block creation during the post-expiry grace period (anti-abuse),
+        // then check the tier's item cap.
         try {
+          await GracePeriodService.assertCanCreateContent(authUser.id);
           await PrayOnItLimitService.checkCanCreateItem(authUser.id);
         } catch (limitError: any) {
           return h.response({

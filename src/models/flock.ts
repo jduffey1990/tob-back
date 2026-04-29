@@ -1,3 +1,5 @@
+export type FlockStatus = 'active' | 'suspended';
+
 export interface Flock {
   id: string;
   leaderUserId: string;
@@ -5,6 +7,8 @@ export interface Flock {
   qrCodeIdentifier: string;
   requiresAgeVerification: boolean;
   minimumAge: number;
+  status: FlockStatus;
+  suspendedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +39,7 @@ export interface FollowedLeader {
   leaderUserId: string;
   leaderName: string;
   joinedAt: Date;
+  flockStatus: FlockStatus;
 }
 
 export interface FlockPrayerRequest {

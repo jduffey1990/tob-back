@@ -17,8 +17,10 @@ function mapRowToUserSafe(row: any): UserSafe {
     status: row.status,
     subscriptionTier: row.subscription_tier,
     subscriptionExpiresAt: row.subscription_expires_at ?? null,
+    gracePeriodEndsAt: row.grace_period_ends_at ?? null,
+    graceTierSnapshot: row.grace_tier_snapshot ?? null,
     settings: row.settings ?? DEFAULT_USER_SETTINGS,
-    denomination: row.denomination,  // NEW: Include denomination
+    denomination: row.denomination,
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -32,7 +34,7 @@ export class UserService {
   public static async findAllUsers(): Promise<UserSafe[]> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`
@@ -46,7 +48,7 @@ export class UserService {
   public static async findUserById(id: string): Promise<UserSafe | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
@@ -63,7 +65,7 @@ export class UserService {
   public static async findUserByEmail(email: string): Promise<UserSafe | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+      `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
@@ -92,7 +94,7 @@ export class UserService {
       const { rows } = await db.query(
         `INSERT INTO users (email, password_hash, name, status, denomination)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                    settings, denomination, deleted_at, created_at, updated_at`,
         [input.email, input.passwordHash, input.name, status, denomination]
       );
@@ -144,7 +146,7 @@ export class UserService {
       SET ${setClauses.join(', ')},
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
-      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                 settings, denomination, deleted_at, created_at, updated_at
     `;
     
@@ -198,7 +200,7 @@ export class UserService {
        SET settings = settings || $1::jsonb,
            updated_at = NOW()
        WHERE id = $2::uuid
-       RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                  settings, denomination, deleted_at, created_at, updated_at`,
       [JSON.stringify(settingsUpdate), userId]
     );
@@ -216,7 +218,7 @@ export class UserService {
           SET status = 'active'
         WHERE id = $1::uuid
           AND status = 'inactive'
-        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                   settings, denomination, deleted_at, created_at, updated_at`,
       [userId]
     );
@@ -270,7 +272,7 @@ static async getUserInfo(userId: string): Promise<{
       `UPDATE users
           SET deleted_at = NOW()
         WHERE id = $1::uuid
-        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                   settings, denomination, deleted_at, created_at, updated_at`,
       [userId]
     );
@@ -350,7 +352,7 @@ static async getUserInfo(userId: string): Promise<{
       SET password_hash = $1,
           updated_at = NOW()
       WHERE id = $2::uuid
-      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                 settings, denomination, deleted_at, created_at, updated_at`,
       [newPasswordHash, userId]
     );
@@ -378,7 +380,7 @@ static async getUserInfo(userId: string): Promise<{
         `UPDATE users
             SET updated_at = NOW()
           WHERE id = $1::uuid
-          RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+          RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                     settings, denomination, deleted_at, created_at, updated_at`,
         [userId]
       );

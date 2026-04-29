@@ -9,12 +9,15 @@ import { TTSService } from '../controllers/ttsService';
 import { PrayOnItService } from '../controllers/prayOnItService';
 import { PrayOnItCategory } from '../models/prayOnItItem';
 import { NotificationService } from '../controllers/notificationService';
+import { GracePeriodService } from '../controllers/gracePeriodService';
 import type { UserSafe } from '../models/user';
 
-const FLOCK_LEADER_TIERS = ['prayer_warrior', 'lifetime'];
-
-function isFlockLeaderTier(tier: string): boolean {
-  return FLOCK_LEADER_TIERS.includes(tier);
+// Leader-tier resolution lives in GracePeriodService so a user inside their
+// 14-day grace window keeps leader access (their subscription_tier column is
+// preserved at the snapshot value during grace). Creating new flock prayers
+// is separately blocked by GracePeriodService.assertCanCreateContent.
+function isFlockLeaderTier(user: Pick<UserSafe, 'subscriptionTier'>): boolean {
+  return GracePeriodService.isFlockLeaderTier(GracePeriodService.getEffectiveTier(user));
 }
 
 export const flockRoutes: ServerRoute[] = [
@@ -34,7 +37,7 @@ export const flockRoutes: ServerRoute[] = [
           minimumAge?: number;
         };
 
-        if (!isFlockLeaderTier(authUser.subscriptionTier)) {
+        if (!isFlockLeaderTier(authUser)) {
           return h.response({
             error: 'Prayer Warrior tier required to create a flock',
             upgradeRequired: true
@@ -244,11 +247,24 @@ export const flockRoutes: ServerRoute[] = [
           voiceId?: string;
         };
 
-        if (!isFlockLeaderTier(authUser.subscriptionTier)) {
+        if (!isFlockLeaderTier(authUser)) {
           return h.response({
             error: 'Prayer Warrior tier required to publish flock prayers',
             upgradeRequired: true
           }).code(403);
+        }
+
+        // Block publish during the post-expiry grace period (anti-abuse).
+        // Leader still passes the tier check above (snapshot tier is preserved
+        // during grace) but cannot push new content out to members.
+        try {
+          await GracePeriodService.assertCanCreateContent(authUser.id);
+        } catch (graceErr: any) {
+          return h.response({
+            error: 'Subscription expired',
+            message: graceErr.message,
+            upgradeRequired: true,
+          }).code(402);
         }
 
         // Verify leader has a flock

@@ -5,6 +5,7 @@ import { LimitReachedError, NotFoundError } from '../errors';
 export interface SubscriptionInfo {
   tier: 'free' | 'pro' | 'prayer_warrior' | 'lifetime';
   expiresAt: Date | null;
+  gracePeriodEndsAt: Date | null;  // non-null while in 14-day post-expiry grace
   isActive: boolean;
   prayerCount: number;
   prayerLimit: number | null; // null = unlimited
@@ -42,8 +43,8 @@ export class PrayerLimitService {
 
     // Get user's subscription info
     const { rows: userRows } = await db.query(
-      `SELECT subscription_tier, subscription_expires_at 
-       FROM users 
+      `SELECT subscription_tier, subscription_expires_at, grace_period_ends_at
+       FROM users
        WHERE id = $1::uuid`,
       [userId]
     );
@@ -52,7 +53,8 @@ export class PrayerLimitService {
       throw new NotFoundError('User');
     }
 
-    const { subscription_tier, subscription_expires_at } = userRows[0];
+    const { subscription_tier, subscription_expires_at, grace_period_ends_at } = userRows[0];
+    const inGrace = grace_period_ends_at && new Date(grace_period_ends_at) > new Date();
 
     // Count all user prayers (personal + flock)
     const { rows: prayerRows } = await db.query(
@@ -79,16 +81,18 @@ export class PrayerLimitService {
 
     // Get limit for effective tier
     const prayerLimit = this.getTierLimit(effectiveTier);
-    
-    // Calculate if user can create more prayers
-    const canCreatePrayer = prayerLimit === null || prayerCount < prayerLimit;
-    const remainingPrayers = prayerLimit === null 
-      ? null 
+
+    // During the post-expiry grace period, anti-abuse blocks all creation
+    // regardless of remaining cap headroom.
+    const canCreatePrayer = !inGrace && (prayerLimit === null || prayerCount < prayerLimit);
+    const remainingPrayers = prayerLimit === null
+      ? null
       : Math.max(0, prayerLimit - prayerCount);
 
     return {
       tier: subscription_tier,
       expiresAt: subscription_expires_at,
+      gracePeriodEndsAt: grace_period_ends_at ?? null,
       isActive,
       prayerCount,
       prayerLimit,

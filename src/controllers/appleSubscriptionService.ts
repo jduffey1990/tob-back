@@ -12,6 +12,51 @@
 
 import { PostgresService } from './postgres.service';
 import { ValidationError} from '../errors';
+import { GracePeriodService } from './gracePeriodService';
+import { EmailService } from './email.service';
+
+const emailService = new EmailService();
+
+// Lookup helper: leader email/name + flock info for the leader's flock + their
+// members' emails. Used to fan out subscription-state notifications.
+async function loadLeaderAndMembers(userId: string): Promise<{
+  leaderEmail: string;
+  leaderName: string;
+  gracePeriodEndsAt: Date | null;
+  flockName: string | null;
+  memberEmails: string[];
+} | null> {
+  const db = PostgresService.getInstance();
+  const { rows: userRows } = await db.query(
+    `SELECT email, name, grace_period_ends_at FROM users WHERE id = $1::uuid`,
+    [userId]
+  );
+  if (!userRows[0]) return null;
+  const { rows: flockRows } = await db.query(
+    `SELECT id, name FROM flocks WHERE leader_user_id = $1::uuid LIMIT 1`,
+    [userId]
+  );
+  let memberEmails: string[] = [];
+  let flockName: string | null = null;
+  if (flockRows[0]) {
+    flockName = flockRows[0].name;
+    const { rows: memberRows } = await db.query(
+      `SELECT u.email
+         FROM flock_members fm
+         JOIN users u ON u.id = fm.member_user_id
+        WHERE fm.flock_id = $1::uuid AND u.deleted_at IS NULL`,
+      [flockRows[0].id]
+    );
+    memberEmails = memberRows.map((r: any) => r.email);
+  }
+  return {
+    leaderEmail: userRows[0].email,
+    leaderName: userRows[0].name,
+    gracePeriodEndsAt: userRows[0].grace_period_ends_at ?? null,
+    flockName,
+    memberEmails,
+  };
+}
 
 // ============================================================
 // Product ID → Tier mapping
@@ -137,45 +182,111 @@ export class AppleSubscriptionService {
 
     switch (notificationType) {
 
-      // New subscription or successful renewal → upgrade/maintain tier
+      // New subscription or successful renewal → upgrade/maintain tier.
+      // If the user was in grace (or had a suspended flock from a prior expiry),
+      // clear grace fields and resume their flock transparently. If a flock
+      // was actually resumed (was suspended → now active), notify members.
       case 'SUBSCRIBED':
       case 'DID_RENEW': {
         const tier = this.getTierFromProductId(productId);
-        if (tier) {
-          await this.updateUserSubscription(userId, tier, expiresAt);
-        } else {
+        if (!tier) {
           console.warn(`⚠️  Unknown productId: ${productId}`);
+          break;
         }
-        break;
-      }
-
-      // User changed their renewal preference (e.g. downgraded from Warrior → Pro).
-      // Apple processes the change at next billing cycle. We update immediately
-      // so the downgrade enforcement triggers on next app open rather than next renewal.
-      case 'DID_CHANGE_RENEWAL_PREF': {
-        if (data.signedRenewalInfo) {
-          const renewal    = this.decodeJWSPayload(data.signedRenewalInfo);
-          const newTier    = this.getTierFromProductId(renewal.autoRenewProductId);
-          if (newTier) {
-            await this.updateUserSubscription(userId, newTier, expiresAt);
+        await this.updateUserSubscription(userId, tier, expiresAt);
+        await GracePeriodService.clearGracePeriod(userId);
+        // Only resume the flock if the new tier qualifies as a leader tier.
+        // If they downgraded (e.g. Warrior → Pro on resubscribe), the flock
+        // stays suspended and will be cleaned up at 90 days unless they
+        // upgrade back to Warrior.
+        if (GracePeriodService.isFlockLeaderTier(tier)) {
+          const { flockId: resumedFlockId } = await GracePeriodService.resumeFlock(userId);
+          if (resumedFlockId) {
+            const ctx = await loadLeaderAndMembers(userId);
+            if (ctx?.flockName && ctx.memberEmails.length > 0) {
+              await Promise.all(
+                ctx.memberEmails.map(em =>
+                  emailService.sendFlockResumedEmail(em, ctx.flockName!, ctx.leaderName)
+                )
+              );
+            }
           }
         }
         break;
       }
 
-      // Subscription fully ended or refunded → drop to free
-      case 'EXPIRED':
-      case 'REFUND': {
-        await this.updateUserSubscription(userId, 'free', null);
+      // User changed their renewal preference (e.g. picked a different product
+      // for next renewal). Apple does not actually change the active subscription
+      // until the next billing cycle — applying the change now would strip access
+      // the user already paid for. The eventual DID_RENEW (with the new product
+      // id) or EXPIRED will drive the real tier change.
+      case 'DID_CHANGE_RENEWAL_PREF': {
+        console.log(
+          `ℹ️  Renewal preference change (subtype: ${subtype ?? 'none'}) for user ${userId} ` +
+          '— deferring; tier will update at the actual renewal/expiry event.'
+        );
         break;
       }
 
-      // Billing failure — Apple retries for several days (grace period).
-      // Do NOT downgrade yet; Apple will send EXPIRED if all retries fail.
+      // Subscription ended after billing retries failed or the user cancelled.
+      // For flock-leader tiers we open a 14-day grace period (flock stays
+      // active for members; leader is blocked from creating new content).
+      // For non-leader tiers we downgrade immediately.
+      case 'EXPIRED': {
+        const db = PostgresService.getInstance();
+        const { rows } = await db.query(
+          `SELECT subscription_tier FROM users WHERE id = $1::uuid`,
+          [userId]
+        );
+        const currentTier = rows[0]?.subscription_tier as string | undefined;
+
+        if (currentTier && GracePeriodService.isFlockLeaderTier(currentTier)) {
+          await GracePeriodService.enterGracePeriod(userId, currentTier);
+          // Email the leader so they know the clock is running. (Members are
+          // intentionally NOT notified here — flock stays active during grace.)
+          const ctx = await loadLeaderAndMembers(userId);
+          if (ctx?.leaderEmail && ctx.gracePeriodEndsAt) {
+            await emailService.sendGraceStartEmail(
+              ctx.leaderEmail,
+              ctx.leaderName,
+              new Date(ctx.gracePeriodEndsAt)
+            );
+          }
+        } else {
+          await this.updateUserSubscription(userId, 'free', null);
+        }
+        break;
+      }
+
+      // Refunds are clawbacks — money was returned, often signal of fraud or
+      // chargeback. No grace: immediate downgrade and flock suspension.
+      // Notify the leader (clawback explanation) and any flock members.
+      case 'REFUND': {
+        const ctx = await loadLeaderAndMembers(userId);
+        await this.updateUserSubscription(userId, 'free', null);
+        await GracePeriodService.clearGracePeriod(userId);
+        await GracePeriodService.suspendFlock(userId);
+        console.log(JSON.stringify({ event: 'refund_clawback', userId, productId }));
+        if (ctx?.leaderEmail) {
+          await emailService.sendRefundClawbackEmail(ctx.leaderEmail, ctx.leaderName);
+        }
+        if (ctx?.flockName && ctx.memberEmails.length > 0) {
+          await Promise.all(
+            ctx.memberEmails.map(em =>
+              emailService.sendFlockSuspendedEmail(em, ctx.flockName!, ctx.leaderName)
+            )
+          );
+        }
+        break;
+      }
+
+      // Billing failure — Apple retries for several days (Apple's billing grace).
+      // Do NOT downgrade yet; Apple will send EXPIRED if all retries fail and
+      // our 14-day flock grace will start from there.
       case 'DID_FAIL_TO_RENEW': {
         console.log(
           `⚠️  Billing failure for user ${userId}. ` +
-          'Keeping current tier during Apple grace period.'
+          'Keeping current tier during Apple billing grace period.'
         );
         break;
       }
@@ -237,8 +348,24 @@ export class AppleSubscriptionService {
       [userId, originalTransactionId, productId, expiresAt]
     );
 
-    // Update the user's tier
+    // Update the user's tier and clear any grace state from a prior expiry.
+    // If they're back on a leader tier and had a suspended flock, resume it
+    // and notify members.
     await this.updateUserSubscription(userId, tier, expiresAt);
+    await GracePeriodService.clearGracePeriod(userId);
+    if (GracePeriodService.isFlockLeaderTier(tier)) {
+      const { flockId: resumedFlockId } = await GracePeriodService.resumeFlock(userId);
+      if (resumedFlockId) {
+        const ctx = await loadLeaderAndMembers(userId);
+        if (ctx?.flockName && ctx.memberEmails.length > 0) {
+          await Promise.all(
+            ctx.memberEmails.map(em =>
+              emailService.sendFlockResumedEmail(em, ctx.flockName!, ctx.leaderName)
+            )
+          );
+        }
+      }
+    }
 
     return { tier, expiresAt };
   }

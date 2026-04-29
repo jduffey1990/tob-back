@@ -20,6 +20,8 @@ function mapRowToFlock(row: any): Flock {
     qrCodeIdentifier: row.qr_code_identifier,
     requiresAgeVerification: row.requires_age_verification ?? false,
     minimumAge: row.minimum_age ?? 18,
+    status: (row.status ?? 'active') as 'active' | 'suspended',
+    suspendedAt: row.suspended_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -43,7 +45,7 @@ export class FlockService {
     const { rows } = await db.query(
       `INSERT INTO flocks (leader_user_id, name, qr_code_identifier, requires_age_verification, minimum_age)
        VALUES ($1::uuid, $2, $3, $4, $5)
-       RETURNING id, leader_user_id, name, qr_code_identifier, requires_age_verification, minimum_age, created_at, updated_at`,
+       RETURNING id, leader_user_id, name, qr_code_identifier, requires_age_verification, minimum_age, status, suspended_at, created_at, updated_at`,
       [input.leaderUserId, input.name, qrCodeIdentifier, input.requiresAgeVerification ?? false, input.minimumAge ?? 18]
     );
 
@@ -59,6 +61,7 @@ export class FlockService {
     const { rows } = await db.query(
       `SELECT f.id, f.leader_user_id, f.name, f.qr_code_identifier,
               f.requires_age_verification, f.minimum_age,
+              f.status, f.suspended_at,
               f.created_at, f.updated_at,
               (SELECT COUNT(*) FROM flock_members fm WHERE fm.flock_id = f.id) AS follower_count,
               (SELECT COUNT(*) FROM prayers p WHERE p.flock_id = f.id) AS published_prayer_count
@@ -84,7 +87,7 @@ export class FlockService {
     const db = PostgresService.getInstance();
 
     const { rows } = await db.query(
-      `SELECT id, leader_user_id, name, qr_code_identifier, requires_age_verification, minimum_age, created_at, updated_at
+      `SELECT id, leader_user_id, name, qr_code_identifier, requires_age_verification, minimum_age, status, suspended_at, created_at, updated_at
        FROM flocks
        WHERE qr_code_identifier = $1
        LIMIT 1`,
@@ -181,7 +184,8 @@ export class FlockService {
     const { rows } = await db.query(
       `SELECT f.id AS flock_id, f.name AS flock_name,
               f.leader_user_id, u.name AS leader_name,
-              fm.joined_at
+              fm.joined_at,
+              f.status AS flock_status
        FROM flock_members fm
        JOIN flocks f ON f.id = fm.flock_id
        JOIN users u ON u.id = f.leader_user_id
@@ -196,6 +200,7 @@ export class FlockService {
       leaderUserId: row.leader_user_id,
       leaderName: row.leader_name,
       joinedAt: row.joined_at,
+      flockStatus: (row.flock_status ?? 'active') as 'active' | 'suspended',
     }));
   }
 

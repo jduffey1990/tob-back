@@ -554,7 +554,16 @@ export class EmailService {
    * HTML email template for daily stats
    */
   private createDailyStatsHtml(stats: any, today: string): string {
-    const { users, content, ai, audio, misc } = stats;
+    const { users, content, ai, audio, flocks, misc } = stats;
+
+    const topFlocksRows = (flocks?.topByMemberCount ?? [])
+      .map((f: any, i: number) => `
+        <tr>
+          <td style="padding:4px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">${i + 1}. ${f.flockName}</td>
+          <td style="padding:4px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#6b7280;">${f.leaderName}</td>
+          <td style="padding:4px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;">${f.memberCount}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="3" style="padding:8px;font-size:12px;color:#9ca3af;text-align:center;">No flocks yet</td></tr>';
 
     // Helper for tier badge colors
     const tierColor = (tier: string): string => {
@@ -832,6 +841,44 @@ export class EmailService {
                 </table>
               </div>
 
+              <!-- ========== FLOCKS ========== -->
+              <div style="padding:24px 32px;border-bottom:1px solid #e5e7eb;">
+                <h2 style="margin:0 0 16px;font-size:16px;color:#1f2937;">🐑 Flocks</h2>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+                  <div style="padding:8px 16px;background:#f3f4f6;border-radius:6px;font-size:13px;">
+                    Active: <strong>${flocks?.totalActive ?? 0}</strong>
+                  </div>
+                  <div style="padding:8px 16px;background:#fef3c7;border-radius:6px;font-size:13px;">
+                    Suspended: <strong>${flocks?.totalSuspended ?? 0}</strong>
+                  </div>
+                  <div style="padding:8px 16px;background:#f3f4f6;border-radius:6px;font-size:13px;">
+                    Total members: <strong>${(flocks?.totalMembers ?? 0).toLocaleString()}</strong>
+                  </div>
+                  <div style="padding:8px 16px;background:#dbeafe;border-radius:6px;font-size:13px;">
+                    New (24h): <strong>+${flocks?.newFlocksLast24h ?? 0}</strong>
+                  </div>
+                  <div style="padding:8px 16px;background:#fee2e2;border-radius:6px;font-size:13px;">
+                    Suspended (24h): <strong>${flocks?.flocksSuspendedLast24h ?? 0}</strong>
+                  </div>
+                  <div style="padding:8px 16px;background:#fef3c7;border-radius:6px;font-size:13px;">
+                    In grace: <strong>${flocks?.inGracePeriod ?? 0}</strong>
+                  </div>
+                </div>
+                <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Top flocks by members</div>
+                <table style="width:100%;border-collapse:collapse;">
+                  <thead>
+                    <tr style="background:#f9fafb;">
+                      <th style="padding:6px 12px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase;">Flock</th>
+                      <th style="padding:6px 12px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase;">Leader</th>
+                      <th style="padding:6px 12px;text-align:right;font-size:11px;color:#6b7280;text-transform:uppercase;">Members</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${topFlocksRows}
+                  </tbody>
+                </table>
+              </div>
+
               <!-- ========== MISC ========== -->
               <div style="padding:24px 32px;">
                 <h2 style="margin:0 0 16px;font-size:16px;color:#1f2937;">📋 Miscellaneous</h2>
@@ -886,7 +933,172 @@ export class EmailService {
         </html>`;
   }
 
+  // ============================================
+  // Subscription lifecycle emails
+  //
+  // Five transactional emails fired at state transitions:
+  //   - sendGraceStartEmail        — leader's sub expired, 14-day grace begins
+  //   - sendFlockSuspendedEmail    — member's flock suspended after grace
+  //   - sendFlockResumedEmail      — leader resubscribed, flock back online
+  //   - sendFlockArchivedEmail     — flock hard-deleted after 90 days suspended
+  //   - sendRefundClawbackEmail    — refund processed, instant downgrade
+  //
+  // All use a shared minimal template via createTransactionalHtml().
+  // CTAs link to App Store subscription management for resubscribe flows.
+  // ============================================
 
+  private static readonly APP_STORE_SUBSCRIPTIONS_URL =
+    'https://apps.apple.com/account/subscriptions';
 
+  /** Send a single transactional email through SES. Errors are logged, not thrown. */
+  private async sendTransactional(opts: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<void> {
+    const command = new SendEmailCommand({
+      Source: this.fromEmail,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: opts.subject, Charset: 'UTF-8' },
+        Body: {
+          Html: { Data: opts.html, Charset: 'UTF-8' },
+          Text: { Data: opts.text, Charset: 'UTF-8' },
+        },
+      },
+    });
+    try {
+      await this.sesClient.send(command);
+    } catch (error) {
+      // Per-recipient failure should never abort the cron sub-job that called us.
+      console.error(JSON.stringify({
+        event: 'transactional_email_failed',
+        to: opts.to,
+        subject: opts.subject,
+        error: (error as Error).message,
+      }));
+    }
+  }
+
+  /** Shared minimal-template renderer for subscription notifications. */
+  private createTransactionalHtml(opts: {
+    headline: string;
+    paragraphs: string[];
+    ctaText?: string;
+    ctaUrl?: string;
+  }): string {
+    const ctaBlock = opts.ctaText && opts.ctaUrl
+      ? `<a href="${opts.ctaUrl}" style="display:inline-block;padding:12px 28px;background:#667eea;color:white;text-decoration:none;border-radius:8px;font-weight:600;margin:8px 0 16px;">${opts.ctaText}</a>`
+      : '';
+    const paraBlocks = opts.paragraphs
+      .map(p => `<p style="margin:0 0 16px;line-height:1.55;">${p}</p>`)
+      .join('');
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${opts.headline}</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;margin:0;padding:0;background:#f5f5f5;">
+  <div style="max-width:560px;margin:40px auto;background:white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:32px 30px;text-align:center;color:white;">
+      <h1 style="margin:0;font-size:22px;font-weight:600;">${opts.headline}</h1>
+    </div>
+    <div style="padding:32px 30px;color:#1f2937;font-size:15px;">
+      ${paraBlocks}
+      ${ctaBlock}
+      <p style="margin:24px 0 0;font-size:13px;color:#6b7280;">— The Tower of Babble Team</p>
+    </div>
+  </div>
+</body></html>`;
+  }
+
+  /**
+   * Sent when a flock-leader subscription expires and the 14-day grace begins.
+   * Leader keeps tier access but cannot create new content.
+   */
+  async sendGraceStartEmail(toEmail: string, leaderName: string, gracePeriodEndsAt: Date): Promise<void> {
+    const dateStr = gracePeriodEndsAt.toLocaleDateString('en-US', {
+      month: 'long', day: 'numeric', year: 'numeric',
+    });
+    const html = this.createTransactionalHtml({
+      headline: 'Your subscription has expired',
+      paragraphs: [
+        `Hey ${leaderName},`,
+        `Your Tower of Babble subscription has expired. Your flock is still active for now — your members can still see and pray with everything you've published.`,
+        `You have <strong>14 days (until ${dateStr})</strong> to resubscribe. During this window you can still manage your existing content, but you won't be able to publish new prayers or create new content.`,
+        `If you don't resubscribe by then, your flock will be paused and your members will be notified.`,
+      ],
+      ctaText: 'Resubscribe in App Store',
+      ctaUrl: EmailService.APP_STORE_SUBSCRIPTIONS_URL,
+    });
+    const text = `Your Tower of Babble subscription has expired. You have until ${dateStr} (14 days) to resubscribe before your flock is paused. Manage your subscription: ${EmailService.APP_STORE_SUBSCRIPTIONS_URL}`;
+    await this.sendTransactional({ to: toEmail, subject: 'Your Tower of Babble subscription has expired', html, text });
+  }
+
+  /**
+   * Sent to each member when a flock is suspended (grace expired).
+   * The leader can still resubscribe to bring the flock back; we keep
+   * the membership row so resume is transparent.
+   */
+  async sendFlockSuspendedEmail(toEmail: string, flockName: string, leaderName: string): Promise<void> {
+    const html = this.createTransactionalHtml({
+      headline: 'A flock you follow is paused',
+      paragraphs: [
+        `${leaderName}'s flock <strong>"${flockName}"</strong> has been paused because their subscription ended.`,
+        `Past prayers from this flock will remain in your library. If ${leaderName} resubscribes, the flock will resume automatically and you'll get a notification.`,
+        `If you'd like to leave the flock entirely, you can do so from the Flock screen in the app.`,
+      ],
+    });
+    const text = `${leaderName}'s flock "${flockName}" has been paused because their subscription ended. If they resubscribe, the flock will resume automatically.`;
+    await this.sendTransactional({ to: toEmail, subject: `"${flockName}" is paused`, html, text });
+  }
+
+  /** Sent to each member when a previously-suspended flock is resumed. */
+  async sendFlockResumedEmail(toEmail: string, flockName: string, leaderName: string): Promise<void> {
+    const html = this.createTransactionalHtml({
+      headline: 'A flock you follow is back',
+      paragraphs: [
+        `${leaderName} resubscribed and their flock <strong>"${flockName}"</strong> is active again.`,
+        `You're back in the flock — new prayers will start showing up in your feed as ${leaderName} publishes them.`,
+      ],
+    });
+    const text = `${leaderName}'s flock "${flockName}" is active again. You're back in the flock.`;
+    await this.sendTransactional({ to: toEmail, subject: `"${flockName}" is back`, html, text });
+  }
+
+  /**
+   * Sent to each member when a flock is hard-deleted after 90 days suspended.
+   * No path to recovery — the flock and all its prayers are gone.
+   */
+  async sendFlockArchivedEmail(toEmail: string, flockName: string, leaderName: string): Promise<void> {
+    const html = this.createTransactionalHtml({
+      headline: 'A flock you followed has been archived',
+      paragraphs: [
+        `${leaderName}'s flock <strong>"${flockName}"</strong> has been permanently archived.`,
+        `It was paused for 90 days without a resubscribe, so we've removed it from the app. You've been removed from the flock automatically.`,
+        `Prayers you copied to your personal library are still yours — they remain in your prayer collection.`,
+      ],
+    });
+    const text = `${leaderName}'s flock "${flockName}" has been archived after 90 days paused. You've been removed from the flock. Any prayers you saved to your personal library remain.`;
+    await this.sendTransactional({ to: toEmail, subject: `"${flockName}" has been archived`, html, text });
+  }
+
+  /**
+   * Sent when a refund is processed by Apple. No grace period — instant
+   * downgrade and flock suspension. This email explains why their flock
+   * disappeared with no warning.
+   */
+  async sendRefundClawbackEmail(toEmail: string, leaderName: string): Promise<void> {
+    const html = this.createTransactionalHtml({
+      headline: 'Your subscription has been refunded',
+      paragraphs: [
+        `Hey ${leaderName},`,
+        `Apple processed a refund on your Tower of Babble subscription. Your tier has been set back to free and your flock has been paused.`,
+        `If this was a mistake, you can resubscribe in the App Store — your flock and members will be restored automatically.`,
+      ],
+      ctaText: 'Resubscribe in App Store',
+      ctaUrl: EmailService.APP_STORE_SUBSCRIPTIONS_URL,
+    });
+    const text = `Your Tower of Babble subscription has been refunded. Your tier is now free and your flock is paused. Resubscribe: ${EmailService.APP_STORE_SUBSCRIPTIONS_URL}`;
+    await this.sendTransactional({ to: toEmail, subject: 'Your Tower of Babble subscription has been refunded', html, text });
+  }
 }
 

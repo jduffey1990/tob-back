@@ -6,6 +6,7 @@ import { TTSService } from '../controllers/ttsService';
 import { AudioService } from '../controllers/audioService';
 import { PrayerLimitService } from '../controllers/prayerLimitService';
 import { AIService } from '../controllers/aiService'
+import { GracePeriodService } from '../controllers/gracePeriodService';
 import type { UserSafe } from '../models/user';
 import { PrayerGenerationRequest } from '../models/aiItems';
 
@@ -88,11 +89,12 @@ export const prayerRoutes: ServerRoute[] = [
           category?: string;
         };
 
-        // Check prayer limit BEFORE creating
+        // Block creation during the post-expiry grace period (anti-abuse),
+        // then check the tier's prayer cap.
         try {
+          await GracePeriodService.assertCanCreateContent(authUser.id);
           await PrayerLimitService.checkCanCreatePrayer(authUser.id);
         } catch (limitError: any) {
-          // User hit their limit
           return h.response({
             error: 'Prayer limit reached',
             message: limitError.message,
@@ -328,6 +330,7 @@ export const prayerRoutes: ServerRoute[] = [
         tier: prayerInfo.tier,
         isActive: prayerInfo.isActive,
         expiresAt: prayerInfo.expiresAt,
+        gracePeriodEndsAt: prayerInfo.gracePeriodEndsAt,
         prayers: {
           current: prayerInfo.prayerCount,
           limit: prayerInfo.prayerLimit,      // null = unlimited
@@ -379,9 +382,20 @@ export const prayerRoutes: ServerRoute[] = [
             error: 'Please add at least one Pray On It item or provide custom context.'
           }).code(400);
         }
-        
+
+        // Block AI generation during the post-expiry grace period (anti-abuse).
+        try {
+          await GracePeriodService.assertCanCreateContent(authUser.id);
+        } catch (graceErr: any) {
+          return h.response({
+            error: 'Subscription expired',
+            message: graceErr.message,
+            upgradeRequired: true,
+          }).code(402);
+        }
+
         console.log(`🔵 [Route] Generating AI prayer for user ${authUser.id}`);
-        
+
         // Call the AIService
         const generationResponse = await AIService.generatePrayer(authUser.id, payload);
         

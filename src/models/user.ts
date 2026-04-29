@@ -22,10 +22,12 @@ export interface User {
   passwordHash: string;           // store hash, never raw password
   name: string;
   status: string;                 // 'active' | 'inactive'
-  subscriptionTier: string;       // 'free' | 'pro' | 'lifetime'
-  subscriptionExpiresAt?: Date | null; // null for free/lifetime, date for pro
+  subscriptionTier: string;       // 'free' | 'pro' | 'prayer_warrior' | 'lifetime'
+  subscriptionExpiresAt?: Date | null; // null for free/lifetime, date for pro/warrior
+  gracePeriodEndsAt?: Date | null;     // when in 14-day post-expiry grace; NULL otherwise
+  graceTierSnapshot?: string | null;   // tier user held at moment of expiry (e.g. 'prayer_warrior')
   settings: UserSettings;         // User preferences
-  denomination: string;           // NEW: Religious denomination/sect for AI prayer style
+  denomination: string;           // Religious denomination/sect for AI prayer style
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

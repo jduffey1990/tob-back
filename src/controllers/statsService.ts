@@ -83,12 +83,23 @@ interface MiscStats {
   topUsers: Array<{ name: string; prayer_count: number; play_count: number }>;
 }
 
+interface FlockStats {
+  totalActive: number;
+  totalSuspended: number;
+  totalMembers: number;          // sum of flock_members across all active flocks
+  newFlocksLast24h: number;
+  flocksSuspendedLast24h: number;
+  inGracePeriod: number;         // users with grace_period_ends_at > now
+  topByMemberCount: Array<{ flockName: string; leaderName: string; memberCount: number }>;
+}
+
 interface DailyStats {
   generatedAt: string;
   users: UserStats;
   content: ContentStats;
   ai: AIStats;
   audio: AudioStats;
+  flocks: FlockStats;
   misc: MiscStats;
 }
 
@@ -114,11 +125,12 @@ export class StatsService {
       connectionTimeoutMillis: 5000,
     });
 
-    const [users, content, ai, audio, misc] = await Promise.all([
+    const [users, content, ai, audio, flocks, misc] = await Promise.all([
       this.getUserStats(),
       this.getContentStats(),
       this.getAIStats(),
       this.getAudioStats(),
+      this.getFlockStats(),
       this.getMiscStats(),
     ]);
 
@@ -128,6 +140,7 @@ export class StatsService {
       content,
       ai,
       audio,
+      flocks,
       misc,
     };
 
@@ -478,6 +491,67 @@ export class StatsService {
         characterCount: parseInt(slowest.character_count),
         errorCode:      slowest.error_code,
       } : null,
+    };
+  }
+
+  // ============================================
+  // FLOCK METRICS
+  // ============================================
+
+  private static async getFlockStats(): Promise<FlockStats> {
+    const db = PostgresService.getInstance();
+
+    const [totalsRes, membersRes, newRes, suspendedRes, graceRes, topRes] = await Promise.all([
+      db.query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*) as count FROM flocks GROUP BY status`
+      ),
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) as count
+           FROM flock_members fm
+           JOIN flocks f ON f.id = fm.flock_id
+          WHERE f.status = 'active'`
+      ),
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM flocks
+          WHERE created_at >= NOW() - INTERVAL '24 hours'`
+      ),
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM flocks
+          WHERE status = 'suspended' AND suspended_at >= NOW() - INTERVAL '24 hours'`
+      ),
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM users
+          WHERE grace_period_ends_at IS NOT NULL
+            AND grace_period_ends_at > NOW()
+            AND deleted_at IS NULL`
+      ),
+      db.query<{ flock_name: string; leader_name: string; member_count: string }>(
+        `SELECT f.name AS flock_name, u.name AS leader_name, COUNT(fm.id) AS member_count
+           FROM flocks f
+           JOIN users u ON u.id = f.leader_user_id
+           LEFT JOIN flock_members fm ON fm.flock_id = f.id
+          WHERE f.status = 'active'
+          GROUP BY f.id, f.name, u.name
+          ORDER BY member_count DESC
+          LIMIT 5`
+      ),
+    ]);
+
+    const byStatus: Record<string, number> = {};
+    for (const r of totalsRes.rows) byStatus[r.status] = parseInt(r.count);
+
+    return {
+      totalActive: byStatus['active'] ?? 0,
+      totalSuspended: byStatus['suspended'] ?? 0,
+      totalMembers: parseInt(membersRes.rows[0]?.count ?? '0'),
+      newFlocksLast24h: parseInt(newRes.rows[0]?.count ?? '0'),
+      flocksSuspendedLast24h: parseInt(suspendedRes.rows[0]?.count ?? '0'),
+      inGracePeriod: parseInt(graceRes.rows[0]?.count ?? '0'),
+      topByMemberCount: topRes.rows.map(r => ({
+        flockName: r.flock_name,
+        leaderName: r.leader_name,
+        memberCount: parseInt(r.member_count),
+      })),
     };
   }
 

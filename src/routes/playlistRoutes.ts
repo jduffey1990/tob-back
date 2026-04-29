@@ -3,6 +3,7 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import { PlaylistService } from '../controllers/playlistService';
 import { UserService } from '../controllers/userService';
+import { GracePeriodService } from '../controllers/gracePeriodService';
 import type { UserSafe } from '../models/user';
 
 const PLAYLIST_TIERS = ['pro', 'prayer_warrior', 'lifetime'];
@@ -52,6 +53,17 @@ export const playlistRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         await requirePlaylistTier(authUser.id);
+
+        // Block creation during the post-expiry grace period (anti-abuse).
+        try {
+          await GracePeriodService.assertCanCreateContent(authUser.id);
+        } catch (graceErr: any) {
+          return h.response({
+            error: 'Subscription expired',
+            message: graceErr.message,
+            upgradeRequired: true,
+          }).code(402);
+        }
 
         const payload = request.payload as { name: string; prayerIds: string[] };
 
