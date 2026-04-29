@@ -6,7 +6,7 @@ import { PostgresService } from './postgres.service';
 import { redisService } from './redis.service';
 import { S3Service } from './s3.service';
 import { TTSService } from './ttsService';
-import { AppError, ConflictError, ExternalServiceError } from '../errors/AppErrors';
+import { AppError, ConflictError, ExternalServiceError, LimitReachedError, ValidationError } from '../errors/AppErrors';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
 const sqsClient = new SQSClient({});
@@ -284,6 +284,36 @@ export class AudioService {
     voiceId: string,
     userId: string
   ): Promise<void> {
+    // Single chokepoint for tier validation + trial-credit consumption.
+    // Every TTS call (prayer creation, manual regen, flock) flows through
+    // here, so the gate applies uniformly without per-route surgery.
+    const db = PostgresService.getInstance();
+
+    const voice = await TTSService.getVoiceById(voiceId);
+    if (!voice) {
+      throw new ValidationError(`Voice ${voiceId} not found`);
+    }
+
+    const userResult = await db.query<{ subscription_tier: string }>(
+      `SELECT subscription_tier FROM users WHERE id = $1`,
+      [userId]
+    );
+    const userTier = userResult.rows[0]?.subscription_tier ?? 'free';
+
+    const { allowed, consumesTrialCredit } = await TTSService.canUserUseVoiceWithTrial(
+      userId, userTier, voice
+    );
+    if (!allowed) {
+      throw new LimitReachedError(`Voice ${voice.name} requires ${voice.tier} tier or higher`);
+    }
+    if (consumesTrialCredit) {
+      const remaining = await TTSService.consumeTrialCredit(userId);
+      if (remaining === null) {
+        // Lost the race — another concurrent generation took the last credit.
+        throw new LimitReachedError(`Voice ${voice.name} requires ${voice.tier} tier or higher`);
+      }
+    }
+
     // Local dev: no SQS, run TTS in-process. Fire-and-forget is safe here
     // because Node's event loop keeps running after the handler returns —
     // the Lambda freeze that breaks this pattern in prod does not apply

@@ -6,7 +6,7 @@ import {
   VoiceOption
 } from '../models/ttsItems';
 import { PostgresService } from './postgres.service';
-import {NotFoundError, ValidationError, ExternalServiceError, LimitReachedError} from '../errors/AppErrors'
+import {NotFoundError, ValidationError, ExternalServiceError} from '../errors/AppErrors'
 
 // ============================================
 // TTS Service - With Fish Audio WebSocket Streaming
@@ -57,17 +57,16 @@ export class TTSService {
     
     const tier = userResult.rows[0].subscription_tier;
     console.log(`   User tier: ${tier}`);
-    
-    // 2. Validate voice is allowed for this tier
+
+    // 2. Look up voice. Tier validation is performed upstream in
+    // AudioService.enqueueGeneration (the single chokepoint for all TTS
+    // callers); re-checking here would falsely reject trial-credit users
+    // whose remaining count was already decremented at enqueue time.
     const voice = await this.getVoiceById(request.voiceId);
     if (!voice) {
       throw new ValidationError(`Voice ${request.voiceId} not found`);
     }
-    
-    if (!this.canUserUseVoice(tier, voice)) {
-      throw new LimitReachedError(`Voice ${voice.name} requires ${voice.tier} tier or higher`);
-    }
-    
+
     // 3. Generate audio based on provider
     const startTime = Date.now();
     let audioData: string;
@@ -313,6 +312,80 @@ export class TTSService {
     const userLevel = this.TIER_HIERARCHY[userTier.toLowerCase()] ?? 0;
     const voiceLevel = this.TIER_HIERARCHY[voice.tier.toLowerCase()] ?? 0;
     return userLevel >= voiceLevel;
+  }
+
+  /**
+   * Lifetime trial allotment of premium-voice generations for free users.
+   */
+  static readonly TRIAL_VOICES_INITIAL_ALLOTMENT = 5;
+
+  /**
+   * Read a user's remaining trial-voice credits.
+   */
+  static async getTrialVoicesRemaining(userId: string): Promise<number> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query<{ trial_voices_remaining: number }>(
+      `SELECT trial_voices_remaining FROM users WHERE id = $1`,
+      [userId]
+    );
+    return rows[0]?.trial_voices_remaining ?? 0;
+  }
+
+  /**
+   * Tier check + free-user trial-credit bypass. Single source of truth for
+   * "is this voice allowed right now?" — used by the voice-list endpoint
+   * (to unlock premium voices in the UI) and by enqueueGeneration (to gate
+   * the actual TTS spend).
+   */
+  static async canUserUseVoiceWithTrial(
+    userId: string,
+    userTier: string,
+    voice: VoiceOption
+  ): Promise<{ allowed: boolean; consumesTrialCredit: boolean }> {
+    if (this.canUserUseVoice(userTier, voice)) {
+      return { allowed: true, consumesTrialCredit: false };
+    }
+    if (userTier.toLowerCase() !== 'free') {
+      return { allowed: false, consumesTrialCredit: false };
+    }
+    const remaining = await this.getTrialVoicesRemaining(userId);
+    return { allowed: remaining > 0, consumesTrialCredit: remaining > 0 };
+  }
+
+  /**
+   * Atomically decrement a free user's trial credits. Returns the new
+   * remaining count, or null if the user had no credits left at the moment
+   * of write (lost a race against a concurrent generation).
+   *
+   * When the count hits zero, also resets the user's default voice to a
+   * free voice if it was a premium one — otherwise the locked voice would
+   * silently fail every subsequent prayer creation.
+   */
+  static async consumeTrialCredit(userId: string): Promise<number | null> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query<{ trial_voices_remaining: number }>(
+      `UPDATE users
+       SET trial_voices_remaining = trial_voices_remaining - 1
+       WHERE id = $1 AND trial_voices_remaining > 0
+       RETURNING trial_voices_remaining`,
+      [userId]
+    );
+    const remaining = rows[0]?.trial_voices_remaining ?? null;
+
+    if (remaining === 0) {
+      // Mirrors the pattern used by the cartesia-rollback migration:
+      // only resets when the current default actually points at a paid voice.
+      await db.query(
+        `UPDATE users
+         SET settings = jsonb_set(settings, '{selectedVoiceId}', '"com.apple.voice.compact.en-US.Samantha"')
+         WHERE id = $1
+           AND subscription_tier = 'free'
+           AND (settings->>'selectedVoiceId') IN (SELECT id FROM voices WHERE tier != 'free')`,
+        [userId]
+      );
+    }
+
+    return remaining;
   }
 
   /**

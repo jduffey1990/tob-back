@@ -182,7 +182,11 @@ export class UserService {
       if (userResult.rows.length === 0) throw new NotFoundError('User');
 
       const userTier = userResult.rows[0].subscription_tier;
-      if (!TTSService.canUserUseVoice(userTier, voice)) {
+      // Selecting a voice as default doesn't consume a trial credit — that
+      // happens at generation time. We just gate the selection behind the
+      // same trial-aware allowed check used by the voice list endpoint.
+      const { allowed } = await TTSService.canUserUseVoiceWithTrial(userId, userTier, voice);
+      if (!allowed) {
         throw new ValidationError(`Voice '${voice.name}' requires ${voice.tier} tier or higher`);
       }
     }

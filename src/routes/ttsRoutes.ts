@@ -16,20 +16,27 @@ export const ttsRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        
-        // Get user's subscription tier from database
-        const userInfo = await UserService.getUserInfo(authUser.id);
-        
-        // Get all voices available to this user's tier
-        const availableVoices = await TTSService.getVoicesForTier(userInfo.subscriptionTier);
 
-        // Get ALL voices (to show locked ones in UI)
+        const userInfo = await UserService.getUserInfo(authUser.id);
+        const tier = userInfo.subscriptionTier;
+
+        // Free users with trial credits see all voices unlocked. Non-free
+        // users get a null count and the standard tier filter.
+        const trialVoicesRemaining = tier === 'free'
+          ? await TTSService.getTrialVoicesRemaining(authUser.id)
+          : null;
+        const trialActive = trialVoicesRemaining !== null && trialVoicesRemaining > 0;
+
         const allVoices = await TTSService.getAvailableVoices();
-        
+        const availableVoices = trialActive
+          ? allVoices
+          : allVoices.filter(voice => TTSService.canUserUseVoice(tier, voice));
+
         return h.response({
-          userTier: userInfo.subscriptionTier,
+          userTier: tier,
           availableVoices,
           allVoices,
+          trialVoicesRemaining,
           count: {
             available: availableVoices.length,
             total: allVoices.length
