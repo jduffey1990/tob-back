@@ -28,6 +28,7 @@ export interface User {
   graceTierSnapshot?: string | null;   // tier user held at moment of expiry (e.g. 'prayer_warrior')
   settings: UserSettings;         // User preferences
   denomination: string;           // Religious denomination/sect for AI prayer style
+  trialVoicesRemaining: number;   // Lifetime premium-voice trial credits; only meaningful for free tier
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

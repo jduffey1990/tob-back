@@ -3,7 +3,6 @@ import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import Joi from 'joi';
 import { TTSService } from '../controllers/ttsService';
 import type { UserSafe } from '../models/user';
-import { UserService } from '../controllers/userService';
 import { PrayerService } from '../controllers/prayerService';
 
 export const ttsRoutes: ServerRoute[] = [
@@ -16,15 +15,11 @@ export const ttsRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-
-        const userInfo = await UserService.getUserInfo(authUser.id);
-        const tier = userInfo.subscriptionTier;
+        const tier = authUser.subscriptionTier;
 
         // Free users with trial credits see all voices unlocked. Non-free
         // users get a null count and the standard tier filter.
-        const trialVoicesRemaining = tier === 'free'
-          ? await TTSService.getTrialVoicesRemaining(authUser.id)
-          : null;
+        const trialVoicesRemaining = tier === 'free' ? authUser.trialVoicesRemaining : null;
         const trialActive = trialVoicesRemaining !== null && trialVoicesRemaining > 0;
 
         const allVoices = await TTSService.getAvailableVoices();

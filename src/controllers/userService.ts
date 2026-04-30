@@ -21,6 +21,7 @@ function mapRowToUserSafe(row: any): UserSafe {
     graceTierSnapshot: row.grace_tier_snapshot ?? null,
     settings: row.settings ?? DEFAULT_USER_SETTINGS,
     denomination: row.denomination,
+    trialVoicesRemaining: row.trial_voices_remaining ?? 0,
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -35,7 +36,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`
     );
@@ -49,7 +50,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
@@ -66,7 +67,7 @@ export class UserService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
         LIMIT 1`,
@@ -95,7 +96,7 @@ export class UserService {
         `INSERT INTO users (email, password_hash, name, status, denomination)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                   settings, denomination, deleted_at, created_at, updated_at`,
+                   settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
         [input.email, input.passwordHash, input.name, status, denomination]
       );
       return mapRowToUserSafe(rows[0]);
@@ -147,7 +148,7 @@ export class UserService {
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                settings, denomination, deleted_at, created_at, updated_at
+                settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
     `;
     
     const { rows } = await db.query(query, values);
@@ -205,7 +206,7 @@ export class UserService {
            updated_at = NOW()
        WHERE id = $2::uuid
        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                 settings, denomination, deleted_at, created_at, updated_at`,
+                 settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
       [JSON.stringify(settingsUpdate), userId]
     );
 
@@ -223,7 +224,7 @@ export class UserService {
         WHERE id = $1::uuid
           AND status = 'inactive'
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                  settings, denomination, deleted_at, created_at, updated_at`,
+                  settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
       [userId]
     );
 
@@ -277,7 +278,7 @@ static async getUserInfo(userId: string): Promise<{
           SET deleted_at = NOW()
         WHERE id = $1::uuid
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                  settings, denomination, deleted_at, created_at, updated_at`,
+                  settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
       [userId]
     );
     if (!rows[0]) throw new NotFoundError('User');
@@ -357,7 +358,7 @@ static async getUserInfo(userId: string): Promise<{
           updated_at = NOW()
       WHERE id = $2::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                settings, denomination, deleted_at, created_at, updated_at`,
+                settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
       [newPasswordHash, userId]
     );
     
@@ -385,7 +386,7 @@ static async getUserInfo(userId: string): Promise<{
             SET updated_at = NOW()
           WHERE id = $1::uuid
           RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                    settings, denomination, deleted_at, created_at, updated_at`,
+                    settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`,
         [userId]
       );
 

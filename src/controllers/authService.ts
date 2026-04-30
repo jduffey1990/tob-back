@@ -19,6 +19,7 @@ function rowToUserSafe(row: any): UserSafe {
     subscriptionExpiresAt: row.subscription_expires_at ?? null,
     settings: row.settings ?? DEFAULT_USER_SETTINGS,  // NEW!
     denomination: row.denomination,
+    trialVoicesRemaining: row.trial_voices_remaining ?? 0,
     deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -42,7 +43,7 @@ export class AuthService {
       // Load the user by email (case-insensitive), include password_hash for verification
       const { rows } = await db.query(
         `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-                settings, denomination, deleted_at, created_at, updated_at, password_hash
+                settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at, password_hash
          FROM users
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1`,
@@ -108,7 +109,7 @@ export class AuthService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, email, name, status, subscription_tier, subscription_expires_at,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`,
