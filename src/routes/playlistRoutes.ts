@@ -101,10 +101,10 @@ export const playlistRoutes: ServerRoute[] = [
   },
 
   // ============================================
-  // GET /playlists/{id} — Playlist detail with per-prayer audio state
-  // voiceId is now OPTIONAL. When omitted (e.g. Apple TTS client),
-  // all prayers are returned with audioState "MISSING" — the iOS
-  // client handles playback entirely on-device for Apple voices.
+  // GET /playlists/{id} — Playlist detail with per-prayer audio state.
+  // Each prayer is resolved against its own pinned voice (prayers.voice_id),
+  // so playlists are durable across user voice changes. Any `voiceId` query
+  // param sent by old clients is ignored.
   // ============================================
   {
     method: 'GET',
@@ -115,14 +115,8 @@ export const playlistRoutes: ServerRoute[] = [
         await requirePlaylistTier(authUser.id);
 
         const { id: playlistId } = request.params;
-        // voiceId is optional — absent means Apple TTS (client-side voice)
-        const { voiceId } = request.query as { voiceId?: string };
 
-        const detail = await PlaylistService.findPlaylistDetail(
-          playlistId,
-          authUser.id,
-          voiceId   // may be undefined
-        );
+        const detail = await PlaylistService.findPlaylistDetail(playlistId, authUser.id);
 
         if (!detail) {
           return h.response({ error: 'Playlist not found' }).code(404);
@@ -140,7 +134,7 @@ export const playlistRoutes: ServerRoute[] = [
     options: {
       auth: 'jwt',
       description: 'Get full playlist detail with per-prayer audio state',
-      notes: 'voiceId query param optional. Omit for Apple TTS — prayers returned with audioState MISSING.',
+      notes: 'Each prayer plays in its pinned voice. Any voiceId query param from old clients is ignored.',
       tags: ['api', 'playlists'],
     },
   },

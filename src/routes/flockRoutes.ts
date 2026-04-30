@@ -273,26 +273,29 @@ export const flockRoutes: ServerRoute[] = [
           return h.response({ error: 'You need to create a flock first' }).code(400);
         }
 
-        // Create the prayer in the unified prayers table with flock_id set
+        // Resolve voice: explicit voiceId from payload, then user's preferred voice,
+        // then Samantha (matches the migration's backfill safety net). Pinned on the
+        // prayer row so every member hears the leader's voice — explicit contract,
+        // not a coincidence of "members can't regenerate."
+        const resolvedVoiceId = voiceId
+          || authUser.settings?.selectedVoiceId
+          || 'com.apple.voice.compact.en-US.Samantha';
+
         const prayer = await PrayerService.createPrayer({
           userId: authUser.id,
           title: title.trim(),
           text: text.trim(),
           flockId: flock.id,
+          voiceId: resolvedVoiceId,
         });
 
-        // Resolve voice: use provided voiceId, or fall back to user's preferred voice
-        const resolvedVoiceId = voiceId || authUser.settings?.selectedVoiceId;
-
-        if (resolvedVoiceId) {
-          const resolvedVoice = await TTSService.getVoiceById(resolvedVoiceId);
-          if (resolvedVoice && resolvedVoice.provider !== 'apple') {
-            console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
-            try {
-              await AudioService.enqueueGeneration(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
-            } catch (err: any) {
-              console.error('[flocks] TTS enqueue failed (non-fatal):', err?.message || err);
-            }
+        const resolvedVoice = await TTSService.getVoiceById(resolvedVoiceId);
+        if (resolvedVoice && resolvedVoice.provider !== 'apple') {
+          console.log(`[flocks] Auto-triggering TTS for flock prayer ${prayer.id}, voice: ${resolvedVoiceId}`);
+          try {
+            await AudioService.enqueueGeneration(prayer.id, text.trim(), resolvedVoiceId, authUser.id);
+          } catch (err: any) {
+            console.error('[flocks] TTS enqueue failed (non-fatal):', err?.message || err);
           }
         }
 

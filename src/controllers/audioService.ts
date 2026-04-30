@@ -78,23 +78,24 @@ export class AudioService {
   public static async getPrayerForUser(
     prayerId: string,
     userId: string
-  ): Promise<{ id: string; text: string; title: string } | null> {
-    
+  ): Promise<{ id: string; text: string; title: string; voiceId: string | null } | null> {
+
     const db = PostgresService.getInstance();
-    
-    const result = await db.query<{ id: string; text: string; title: string }>(
-      `SELECT id, text, title 
-       FROM prayers 
+
+    const result = await db.query<{ id: string; text: string; title: string; voice_id: string | null }>(
+      `SELECT id, text, title, voice_id
+       FROM prayers
        WHERE id = $1 AND user_id = $2
        LIMIT 1`,
       [prayerId, userId]
     );
-    
+
     if (result.rows.length === 0) {
       return null;
     }
-    
-    return result.rows[0];
+
+    const row = result.rows[0];
+    return { id: row.id, text: row.text, title: row.title, voiceId: row.voice_id ?? null };
   }
   
   /**

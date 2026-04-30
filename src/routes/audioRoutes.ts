@@ -18,22 +18,32 @@ export const audioRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         const { id: prayerId } = request.params;
-        const { voiceId } = request.query as { voiceId: string };
-        
-        // Verify user owns this prayer
+        const { voiceId: voiceIdOverride } = request.query as { voiceId?: string };
+
+        // Verify user owns this prayer (and grab its pinned voice).
         const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
-        
+
         if (!prayer) {
           return h.response({
             error: 'Prayer not found'
           }).code(404);
         }
-        
-        // Get audio state
-        const state = await AudioService.getAudioState(prayerId, voiceId);
-        
+
+        // voiceId is optional. New clients omit it and get audio for the prayer's
+        // pinned voice; the override exists so the picker menu can probe a
+        // non-pinned voice. Old clients that still pass the user's selectedVoiceId
+        // continue to work unchanged.
+        const effectiveVoiceId = voiceIdOverride ?? prayer.voiceId;
+        if (!effectiveVoiceId) {
+          return h.response({
+            error: 'Prayer has no pinned voice and no voiceId override was provided'
+          }).code(400);
+        }
+
+        const state = await AudioService.getAudioState(prayerId, effectiveVoiceId);
+
         return h.response(state).code(200);
-        
+
       } catch (error: any) {
         console.error('❌ [audioRoutes] Get audio state error:', error);
         return h.response({
@@ -49,12 +59,12 @@ export const audioRoutes: ServerRoute[] = [
           id: Joi.string().uuid().required(),
         }),
         query: Joi.object({
-          voiceId: Joi.string().required(),
+          voiceId: Joi.string().optional(),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
-      description: 'Get audio state for a prayer with specific voice',
-      notes: 'Returns BUILDING, READY, or MISSING state',
+      description: 'Get audio state for a prayer (defaults to its pinned voice)',
+      notes: 'voiceId optional — omit to use the prayer\'s pinned voice; pass it to probe a non-pinned voice (picker menu).',
       tags: ['api', 'audio', 'prayers']
     }
   },
@@ -70,21 +80,29 @@ export const audioRoutes: ServerRoute[] = [
       try {
         const authUser = request.auth.credentials as UserSafe;
         const { id: prayerId } = request.params;
-        const payload = request.payload as { voiceId: string };
-        
+        const payload = request.payload as { voiceId?: string };
+
         console.log("here is id", prayerId)
-        // Verify user owns this prayer
+        // Verify user owns this prayer (and grab its pinned voice).
         const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
-        
+
         if (!prayer) {
           return h.response({
             error: 'Prayer not found'
           }).code(404);
         }
-        
-        // Check current state
-        const currentState = await AudioService.getAudioState(prayerId, payload.voiceId);
-        
+
+        // voiceId optional — defaults to the pinned voice. Pass an explicit
+        // override when the picker menu is regenerating into a non-pinned voice.
+        const effectiveVoiceId = payload.voiceId ?? prayer.voiceId;
+        if (!effectiveVoiceId) {
+          return h.response({
+            error: 'Prayer has no pinned voice and no voiceId override was provided'
+          }).code(400);
+        }
+
+        const currentState = await AudioService.getAudioState(prayerId, effectiveVoiceId);
+
         // ✅ If already exists, return it immediately (cache hit!)
         if (currentState.state === 'READY') {
           console.log(`✅ [audioRoutes] Audio already exists, returning URL`);
@@ -96,7 +114,7 @@ export const audioRoutes: ServerRoute[] = [
             message: 'Audio already generated'
           }).code(200);
         }
-        
+
         // ⏳ If already building, return 202 (idempotent!)
         if (currentState.state === 'BUILDING') {
           console.log(`⏳ [audioRoutes] Audio already building, returning 202`);
@@ -105,18 +123,18 @@ export const audioRoutes: ServerRoute[] = [
             message: 'Audio generation in progress'
           }).code(202);
         }
-        
+
         // 🚀 State is MISSING - start async generation
         console.log(`🚀 [audioRoutes] Starting async audio generation`);
         console.log(`   Prayer: ${prayerId} (${prayer.title})`);
-        console.log(`   Voice: ${payload.voiceId}`);
+        console.log(`   Voice: ${effectiveVoiceId}`);
         console.log(`   Text length: ${prayer.text.length} chars`);
-        
+
         // Hand off to the worker Lambda via SQS (or run inline in local dev).
         await AudioService.enqueueGeneration(
           prayerId,
           prayer.text,
-          payload.voiceId,
+          effectiveVoiceId,
           authUser.id
         );
 
@@ -167,7 +185,7 @@ export const audioRoutes: ServerRoute[] = [
           id: Joi.string().uuid().required(),
         }),
         payload: Joi.object({
-          voiceId: Joi.string().required(),
+          voiceId: Joi.string().optional(),
         }),
         failAction: async (request, h, err) => { throw err; },
       },

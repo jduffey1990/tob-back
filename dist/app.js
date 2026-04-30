@@ -23,6 +23,8 @@ const audioService_1 = require("./controllers/audioService");
 const s3_service_1 = require("./controllers/s3.service");
 const userService_1 = require("./controllers/userService");
 const statsService_1 = require("./controllers/statsService");
+const gracePeriodService_1 = require("./controllers/gracePeriodService");
+const email_service_1 = require("./controllers/email.service");
 const audioRoutes_1 = require("./routes/audioRoutes");
 const loginRoutes_1 = require("./routes/loginRoutes");
 const passwordResetRoutes_1 = require("./routes/passwordResetRoutes");
@@ -36,6 +38,7 @@ const denominationRoutes_1 = require("./routes/denominationRoutes");
 const appleRoutes_1 = require("./routes/appleRoutes");
 const playlistRoutes_1 = require("./routes/playlistRoutes");
 const flockRoutes_1 = require("./routes/flockRoutes");
+const deviceRoutes_1 = require("./routes/deviceRoutes");
 const requestLogger_1 = __importDefault(require("./plugins/requestLogger"));
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -63,7 +66,8 @@ const allRoutes = asServerRoutes([
     ...denominationRoutes_1.denominationRoutes,
     ...appleRoutes_1.appleRoutes,
     ...playlistRoutes_1.playlistRoutes,
-    ...flockRoutes_1.flockRoutes
+    ...flockRoutes_1.flockRoutes,
+    ...deviceRoutes_1.deviceRoutes
 ]);
 function buildServer() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -165,31 +169,62 @@ const handler = (event, context) => __awaiter(void 0, void 0, void 0, function* 
             body: JSON.stringify({ status: 'warm' })
         };
     }
-    // Handle EventBridge scheduled cleanup event
+    // Handle EventBridge scheduled cleanup event.
+    // Three sub-jobs run in sequence under one cron:
+    //   1. Hard-delete users soft-deleted >30 days ago.
+    //   2. Expire grace periods (downgrade users + suspend flocks).
+    //   3. Hard-delete flocks suspended >90 days ago (shipwreck cleanup).
+    // Sub-jobs are independent; a failure in one is logged and the next still runs.
     if (event.action === 'cleanup_deleted_data') {
         console.log('🗑️  Running scheduled data cleanup...');
+        const summary = {};
+        let hadError = false;
         try {
-            const result = yield userService_1.UserService.cleanupOldDeletedUsers();
-            console.log(`✅ Cleanup complete: Deleted ${result.deletedCount} users`);
-            return {
-                statusCode: 200,
-                body: JSON.stringify({
-                    success: true,
-                    deletedCount: result.deletedCount,
-                    message: `Deleted ${result.deletedCount} users`
-                })
-            };
+            const r = yield userService_1.UserService.cleanupOldDeletedUsers();
+            summary.deletedUsers = r.deletedCount;
         }
         catch (error) {
-            console.error('❌ Cleanup failed:', error);
-            return {
-                statusCode: 500,
-                body: JSON.stringify({
-                    success: false,
-                    error: error.message
-                })
-            };
+            hadError = true;
+            summary.deletedUsersError = error.message;
+            console.error('❌ cleanupOldDeletedUsers failed:', error);
         }
+        const emailService = new email_service_1.EmailService();
+        try {
+            const r = yield gracePeriodService_1.GracePeriodService.expireGracePeriods();
+            summary.gracePeriodsExpired = r.expiredCount;
+            summary.flocksSuspendedFromGrace = r.flocksSuspended;
+            // Fan out flock-suspended emails to members of each newly-suspended flock
+            for (const exp of r.expirations) {
+                if (!exp.flockName || exp.memberEmails.length === 0)
+                    continue;
+                yield Promise.all(exp.memberEmails.map(em => emailService.sendFlockSuspendedEmail(em, exp.flockName, exp.leaderName)));
+            }
+        }
+        catch (error) {
+            hadError = true;
+            summary.gracePeriodsError = error.message;
+            console.error('❌ expireGracePeriods failed:', error);
+        }
+        try {
+            const r = yield gracePeriodService_1.GracePeriodService.cleanupSuspendedFlocks();
+            summary.flocksArchived = r.deletedCount;
+            // Fan out flock-archived emails to members of each archived flock
+            for (const arch of r.archived) {
+                if (arch.memberEmails.length === 0)
+                    continue;
+                yield Promise.all(arch.memberEmails.map(em => emailService.sendFlockArchivedEmail(em, arch.flockName, arch.leaderName)));
+            }
+        }
+        catch (error) {
+            hadError = true;
+            summary.flocksArchivedError = error.message;
+            console.error('❌ cleanupSuspendedFlocks failed:', error);
+        }
+        console.log(JSON.stringify(Object.assign({ event: 'daily_cleanup_summary' }, summary)));
+        return {
+            statusCode: hadError ? 500 : 200,
+            body: JSON.stringify(Object.assign({ success: !hadError }, summary))
+        };
     }
     if (event.action === 'send_daily_stats') {
         console.log('📊 Running daily stats digest...');

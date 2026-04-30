@@ -63,16 +63,15 @@ export class PlaylistService {
   }
 
   /**
-   * Get full playlist detail including per-prayer audio state.
+   * Get full playlist detail with per-prayer audio state.
    *
-   * voiceId is now optional. When undefined (Apple TTS client), we skip
-   * the audio-state fan-out entirely and return every prayer as MISSING —
-   * the iOS client owns playback for Apple voices and doesn't need URLs.
+   * Each prayer is resolved against its own pinned voice (prayers.voice_id) —
+   * playlists become durable across user voice changes. Apple-pinned prayers
+   * return MISSING (no backend audio); the iOS client plays them on-device.
    */
   public static async findPlaylistDetail(
     playlistId: string,
-    userId: string,
-    voiceId: string | undefined
+    userId: string
   ): Promise<PlaylistDetail | null> {
     const db = PostgresService.getInstance();
 
@@ -93,8 +92,9 @@ export class PlaylistService {
       `SELECT
          pp.prayer_id,
          pp.position,
-         pr.title  AS prayer_title,
-         pr.text   AS prayer_text
+         pr.title    AS prayer_title,
+         pr.text     AS prayer_text,
+         pr.voice_id AS voice_id
        FROM playlist_prayers pp
        JOIN prayers pr ON pr.id = pp.prayer_id
        WHERE pp.playlist_id = $1::uuid
@@ -102,41 +102,40 @@ export class PlaylistService {
       [playlistId]
     );
 
-    let prayerDetails: PlaylistPrayerDetail[];
+    const prayerDetails: PlaylistPrayerDetail[] = await Promise.all(
+      prayerRows.map(async (row): Promise<PlaylistPrayerDetail> => {
+        const pinnedVoiceId: string | null = row.voice_id ?? null;
 
-    if (!voiceId) {
-      // Apple TTS — no backend audio state needed. Return all prayers as MISSING
-      // so the iOS client can drive playback entirely on-device.
-      console.log(`ℹ️ [PlaylistService] No voiceId — skipping audio state checks (Apple TTS client)`);
-      prayerDetails = prayerRows.map(row => ({
-        prayerId:    row.prayer_id,
-        prayerTitle: row.prayer_title,
-        prayerText:  row.prayer_text,
-        position:    row.position,
-        audioState:  'MISSING' as const,
-        audioUrl:    undefined,
-      }));
-    } else {
-      // Backend TTS — fan out audio state checks concurrently
-      prayerDetails = await Promise.all(
-        prayerRows.map(async (row): Promise<PlaylistPrayerDetail> => {
-          const audioState = await AudioService.getAudioState(row.prayer_id, voiceId);
+        // Apple voices have no S3 audio — short-circuit to MISSING. iOS plays
+        // them on-device. Same outcome as a getAudioState call would produce,
+        // but skips a Redis hit + DB query per Apple-pinned prayer.
+        if (!pinnedVoiceId || pinnedVoiceId.startsWith('com.apple.')) {
           return {
             prayerId:    row.prayer_id,
             prayerTitle: row.prayer_title,
             prayerText:  row.prayer_text,
             position:    row.position,
-            audioState:  audioState.state,
-            audioUrl:    audioState.audioUrl,
+            audioState:  'MISSING' as const,
+            audioUrl:    undefined,
           };
-        })
-      );
+        }
 
-      console.log(
-        `✅ [PlaylistService] Detail for "${playlist.name}": ` +
-        `${prayerDetails.filter(p => p.audioState === 'READY').length}/${prayerDetails.length} READY`
-      );
-    }
+        const audioState = await AudioService.getAudioState(row.prayer_id, pinnedVoiceId);
+        return {
+          prayerId:    row.prayer_id,
+          prayerTitle: row.prayer_title,
+          prayerText:  row.prayer_text,
+          position:    row.position,
+          audioState:  audioState.state,
+          audioUrl:    audioState.audioUrl,
+        };
+      })
+    );
+
+    console.log(
+      `✅ [PlaylistService] Detail for "${playlist.name}": ` +
+      `${prayerDetails.filter(p => p.audioState === 'READY').length}/${prayerDetails.length} READY`
+    );
 
     return {
       id:        playlist.id,

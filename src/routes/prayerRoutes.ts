@@ -102,38 +102,39 @@ export const prayerRoutes: ServerRoute[] = [
           }).code(402); // 402 Payment Required
         }
         
-        // Create the prayer
+        // Pin the prayer to the user's current voice. Pinning happens at creation
+        // and never changes from a Settings swap; future voice changes via the
+        // picker menu will re-pin explicitly. Fallback to Samantha matches the
+        // migration's backfill safety net.
+        const selectedVoiceId = authUser.settings?.selectedVoiceId
+          ?? 'com.apple.voice.compact.en-US.Samantha';
+
         const newPrayer = await PrayerService.createPrayer({
           userId: authUser.id,
           title: title.trim(),
           text: text.trim(),
           category: category?.trim() || undefined,
-          isTemplate: false
+          isTemplate: false,
+          voiceId: selectedVoiceId,
         });
-        
-        // After creating the prayer successfully:
-          
 
-          // Auto-trigger TTS for the user's current voice (enqueued to worker Lambda)
-          const selectedVoiceId = authUser.settings?.selectedVoiceId;
-          if (selectedVoiceId) {
-            const currentVoice = await TTSService.getVoiceById(selectedVoiceId);
-            if (currentVoice && currentVoice.provider !== 'apple') {
-              console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
-              try {
-                await AudioService.enqueueGeneration(
-                  newPrayer.id,
-                  text,
-                  currentVoice.id,
-                  authUser.id
-                );
-              } catch (err: any) {
-                console.error('[prayers] TTS enqueue failed (non-fatal):', err?.message || err);
-              }
-            }
+        // Auto-trigger TTS for the pinned voice (Apple voices play on-device).
+        const currentVoice = await TTSService.getVoiceById(selectedVoiceId);
+        if (currentVoice && currentVoice.provider !== 'apple') {
+          console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
+          try {
+            await AudioService.enqueueGeneration(
+              newPrayer.id,
+              text,
+              currentVoice.id,
+              authUser.id
+            );
+          } catch (err: any) {
+            console.error('[prayers] TTS enqueue failed (non-fatal):', err?.message || err);
           }
+        }
 
-          return h.response(newPrayer).code(201);
+        return h.response(newPrayer).code(201);
       } catch (error: any) {
         console.error('Create prayer error:', error);
         return h.response({ error: error.message }).code(500);

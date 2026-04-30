@@ -10,6 +10,7 @@ export interface Prayer {
   flockId?: string | null;        // uuid - if set, this prayer is published to a flock
   publishedAt?: Date | null;      // when it was published to the flock
   listenCount: number;            // flock listen count
+  voiceId?: string | null;        // pinned playback voice (nullable until iOS catches up — then NOT NULL)
   // Audio info (joined from audio_files for flock prayer responses)
   audioUrl?: string | null;
   voiceName?: string | null;
@@ -33,6 +34,7 @@ export interface CreatePrayerInput {
   category?: string;
   isTemplate?: boolean;
   flockId?: string;
+  voiceId?: string;
 }
 
 export interface UpdatePrayerInput {

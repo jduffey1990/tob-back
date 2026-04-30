@@ -18,7 +18,7 @@ const ttsService_1 = require("./ttsService");
 const AppErrors_1 = require("../errors/AppErrors");
 // Map db row -> UserSafe (snake_case -> camelCase)
 function mapRowToUserSafe(row) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e;
     return {
         id: row.id,
         email: row.email,
@@ -26,9 +26,11 @@ function mapRowToUserSafe(row) {
         status: row.status,
         subscriptionTier: row.subscription_tier,
         subscriptionExpiresAt: (_a = row.subscription_expires_at) !== null && _a !== void 0 ? _a : null,
-        settings: (_b = row.settings) !== null && _b !== void 0 ? _b : user_1.DEFAULT_USER_SETTINGS,
-        denomination: row.denomination, // NEW: Include denomination
-        deletedAt: (_c = row.deleted_at) !== null && _c !== void 0 ? _c : null,
+        gracePeriodEndsAt: (_b = row.grace_period_ends_at) !== null && _b !== void 0 ? _b : null,
+        graceTierSnapshot: (_c = row.grace_tier_snapshot) !== null && _c !== void 0 ? _c : null,
+        settings: (_d = row.settings) !== null && _d !== void 0 ? _d : user_1.DEFAULT_USER_SETTINGS,
+        denomination: row.denomination,
+        deletedAt: (_e = row.deleted_at) !== null && _e !== void 0 ? _e : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -40,7 +42,7 @@ class UserService {
     static findAllUsers() {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`);
@@ -53,7 +55,7 @@ class UserService {
     static findUserById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
@@ -67,7 +69,7 @@ class UserService {
     static findUserByEmail(email) {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
-            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at,
+            const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
               settings, denomination, deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
@@ -88,7 +90,7 @@ class UserService {
             try {
                 const { rows } = yield db.query(`INSERT INTO users (email, password_hash, name, status, denomination)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                    settings, denomination, deleted_at, created_at, updated_at`, [input.email, input.passwordHash, input.name, status, denomination]);
                 return mapRowToUserSafe(rows[0]);
             }
@@ -125,7 +127,7 @@ class UserService {
       SET ${setClauses.join(', ')},
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
-      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                 settings, denomination, deleted_at, created_at, updated_at
     `;
             const { rows } = yield db.query(query, values);
@@ -152,7 +154,11 @@ class UserService {
                 if (userResult.rows.length === 0)
                     throw new AppErrors_1.NotFoundError('User');
                 const userTier = userResult.rows[0].subscription_tier;
-                if (!ttsService_1.TTSService.canUserUseVoice(userTier, voice)) {
+                // Selecting a voice as default doesn't consume a trial credit — that
+                // happens at generation time. We just gate the selection behind the
+                // same trial-aware allowed check used by the voice list endpoint.
+                const { allowed } = yield ttsService_1.TTSService.canUserUseVoiceWithTrial(userId, userTier, voice);
+                if (!allowed) {
                     throw new AppErrors_1.ValidationError(`Voice '${voice.name}' requires ${voice.tier} tier or higher`);
                 }
             }
@@ -167,7 +173,7 @@ class UserService {
        SET settings = settings || $1::jsonb,
            updated_at = NOW()
        WHERE id = $2::uuid
-       RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                  settings, denomination, deleted_at, created_at, updated_at`, [JSON.stringify(settingsUpdate), userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
@@ -182,7 +188,7 @@ class UserService {
           SET status = 'active'
         WHERE id = $1::uuid
           AND status = 'inactive'
-        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                   settings, denomination, deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0]) {
                 // Not found OR already active/disabled
@@ -221,7 +227,7 @@ class UserService {
             const { rows } = yield db.query(`UPDATE users
           SET deleted_at = NOW()
         WHERE id = $1::uuid
-        RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                   settings, denomination, deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
@@ -284,7 +290,7 @@ class UserService {
       SET password_hash = $1,
           updated_at = NOW()
       WHERE id = $2::uuid
-      RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+      RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                 settings, denomination, deleted_at, created_at, updated_at`, [newPasswordHash, userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
@@ -306,7 +312,7 @@ class UserService {
                 const { rows } = yield tx.query(`UPDATE users
             SET updated_at = NOW()
           WHERE id = $1::uuid
-          RETURNING id, email, name, status, subscription_tier, subscription_expires_at,
+          RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
                     settings, denomination, deleted_at, created_at, updated_at`, [userId]);
                 if (!rows[0])
                     throw new AppErrors_1.NotFoundError('User');

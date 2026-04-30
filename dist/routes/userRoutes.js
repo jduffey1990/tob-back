@@ -307,7 +307,7 @@ exports.userRoutes = [
             auth: 'jwt',
             validate: {
                 payload: joi_1.default.object({
-                    voiceIndex: joi_1.default.number().integer().min(0).max(8).optional(),
+                    selectedVoiceId: joi_1.default.string().optional(),
                     playbackRate: joi_1.default.number().min(0).max(1).optional(),
                 }),
                 failAction: (request, h, err) => __awaiter(void 0, void 0, void 0, function* () { throw err; }),

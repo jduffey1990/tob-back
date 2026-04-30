@@ -14,6 +14,7 @@ const denominationRoutes_1 = require("./denominationRoutes");
 const appleRoutes_1 = require("./appleRoutes");
 const playlistRoutes_1 = require("./playlistRoutes");
 const flockRoutes_1 = require("./flockRoutes");
+const deviceRoutes_1 = require("./deviceRoutes");
 exports.default = [
     ...userRoutes_1.userRoutes,
     ...loginRoutes_1.homeRoutes,
@@ -28,5 +29,6 @@ exports.default = [
     ...denominationRoutes_1.denominationRoutes,
     ...appleRoutes_1.appleRoutes,
     ...playlistRoutes_1.playlistRoutes,
-    ...flockRoutes_1.flockRoutes
+    ...flockRoutes_1.flockRoutes,
+    ...deviceRoutes_1.deviceRoutes
 ];

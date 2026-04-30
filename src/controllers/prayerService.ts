@@ -18,6 +18,7 @@ function mapRowToPrayer(row: any): Prayer {
     flockId: row.flock_id ?? null,
     publishedAt: row.published_at ?? null,
     listenCount: row.listen_count ?? 0,
+    voiceId: row.voice_id ?? null,
     audioUrl: row.audio_url ?? null,
     voiceName: row.voice_name ?? null,
     provider: row.audio_provider ?? row.provider ?? null,
@@ -29,9 +30,8 @@ function mapRowToPrayer(row: any): Prayer {
 // Map db row with audio_files JOIN -> Prayer (resolves voice_name from voice_id)
 async function mapRowToPrayerWithAudio(row: any): Promise<Prayer> {
   const prayer = mapRowToPrayer(row);
-  // Resolve voice name from voice_id if audio exists
-  if (row.voice_id) {
-    const voice = await TTSService.getVoiceById(row.voice_id);
+  if (prayer.voiceId) {
+    const voice = await TTSService.getVoiceById(prayer.voiceId);
     prayer.voiceName = voice?.name ?? null;
   }
   return prayer;
@@ -54,7 +54,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, created_at, updated_at
+              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
        FROM prayers
        WHERE user_id = $1::uuid
        ORDER BY updated_at DESC`,
@@ -74,7 +74,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, created_at, updated_at
+              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
        FROM prayers
        WHERE id = $1::uuid
          AND user_id = $2::uuid
@@ -91,10 +91,10 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     
     const { rows } = await db.query(
-      `INSERT INTO prayers (user_id, title, text, category, is_template, flock_id, published_at)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO prayers (user_id, title, text, category, is_template, flock_id, published_at, voice_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
       [
         input.userId,
         input.title,
@@ -103,6 +103,7 @@ export class PrayerService {
         input.isTemplate ?? false,
         input.flockId ?? null,
         input.flockId ? new Date() : null,
+        input.voiceId ?? null,
       ]
     );
     
@@ -142,7 +143,7 @@ export class PrayerService {
       WHERE id = $${values.length - 1}::uuid
         AND user_id = $${values.length}::uuid
       RETURNING id, user_id, title, text, category, is_template, play_count,
-                last_played_at, flock_id, published_at, listen_count, created_at, updated_at
+                last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
     `;
 
     const { rows } = await db.query(query, values);
@@ -183,7 +184,7 @@ export class PrayerService {
        WHERE id = $1::uuid
          AND user_id = $2::uuid
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
       [prayerId, userId]
     );
     
@@ -198,7 +199,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, created_at, updated_at
+              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
        FROM prayers
        WHERE is_template = true
        ORDER BY category, title`
@@ -232,15 +233,12 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template, p.play_count,
               p.last_played_at, p.flock_id, p.published_at, p.listen_count,
-              p.created_at, p.updated_at,
-              af.s3_url AS audio_url, af.provider AS audio_provider,
-              af.voice_id AS voice_id
+              p.voice_id, p.created_at, p.updated_at,
+              af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
-       LEFT JOIN LATERAL (
-         SELECT s3_url, provider, voice_id FROM audio_files
-         WHERE prayer_id = p.id
-         ORDER BY created_at DESC LIMIT 1
-       ) af ON true
+       LEFT JOIN audio_files af
+         ON af.prayer_id = p.id
+        AND af.voice_id  = p.voice_id
        WHERE p.user_id = $1::uuid
          AND p.flock_id IS NOT NULL
        ORDER BY p.published_at DESC`,
@@ -257,18 +255,15 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template,
               p.play_count, p.last_played_at, p.flock_id, p.published_at,
-              p.listen_count, p.created_at, p.updated_at,
+              p.listen_count, p.voice_id, p.created_at, p.updated_at,
               u.name AS leader_name, f.name AS flock_name,
-              af.s3_url AS audio_url, af.provider AS audio_provider,
-              af.voice_id AS voice_id
+              af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
        JOIN flocks f ON f.id = p.flock_id
        JOIN users u ON u.id = p.user_id
-       LEFT JOIN LATERAL (
-         SELECT s3_url, provider, voice_id FROM audio_files
-         WHERE prayer_id = p.id
-         ORDER BY created_at DESC LIMIT 1
-       ) af ON true
+       LEFT JOIN audio_files af
+         ON af.prayer_id = p.id
+        AND af.voice_id  = p.voice_id
        WHERE p.flock_id IN (
          SELECT flock_id FROM flock_members WHERE member_user_id = $1::uuid
        )
@@ -286,18 +281,15 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template,
               p.play_count, p.last_played_at, p.flock_id, p.published_at,
-              p.listen_count, p.created_at, p.updated_at,
+              p.listen_count, p.voice_id, p.created_at, p.updated_at,
               u.name AS leader_name, f.name AS flock_name,
-              af.s3_url AS audio_url, af.provider AS audio_provider,
-              af.voice_id AS voice_id
+              af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
        JOIN flocks f ON f.id = p.flock_id
        JOIN users u ON u.id = p.user_id
-       LEFT JOIN LATERAL (
-         SELECT s3_url, provider, voice_id FROM audio_files
-         WHERE prayer_id = p.id
-         ORDER BY created_at DESC LIMIT 1
-       ) af ON true
+       LEFT JOIN audio_files af
+         ON af.prayer_id = p.id
+        AND af.voice_id  = p.voice_id
        WHERE p.id = $1::uuid
          AND p.flock_id IS NOT NULL
        LIMIT 1`,
@@ -317,7 +309,7 @@ export class PrayerService {
        WHERE id = $1::uuid
          AND flock_id IS NOT NULL
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
       [prayerId]
     );
     if (!rows[0]) throw new NotFoundError('Flock prayer');
