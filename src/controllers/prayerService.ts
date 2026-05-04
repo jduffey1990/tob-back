@@ -17,7 +17,12 @@ function mapRowToPrayer(row: any): Prayer {
     lastPlayedAt: row.last_played_at ?? null,
     flockId: row.flock_id ?? null,
     publishedAt: row.published_at ?? null,
-    listenCount: row.listen_count ?? 0,
+    // TODO: Drop listenCount alias. Remove this line + the field in src/models/prayer.ts +
+    // related test mocks once: (1) the play-count-consolidation iOS build has been live in the
+    // App Store for at least one full release cycle, AND (2) analytics show <1% of active
+    // sessions on app versions prior to the one that dropped `listenCount` from FlockPrayer.
+    // Origin: feature/play-count-consolidation, prayers.listen_count column dropped same migration.
+    listenCount: row.play_count,
     voiceId: row.voice_id ?? null,
     audioUrl: row.audio_url ?? null,
     voiceName: row.voice_name ?? null,
@@ -54,7 +59,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
+              last_played_at, flock_id, published_at, voice_id, created_at, updated_at
        FROM prayers
        WHERE user_id = $1::uuid
        ORDER BY updated_at DESC`,
@@ -74,7 +79,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
+              last_played_at, flock_id, published_at, voice_id, created_at, updated_at
        FROM prayers
        WHERE id = $1::uuid
          AND user_id = $2::uuid
@@ -94,7 +99,7 @@ export class PrayerService {
       `INSERT INTO prayers (user_id, title, text, category, is_template, flock_id, published_at, voice_id)
        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, voice_id, created_at, updated_at`,
       [
         input.userId,
         input.title,
@@ -143,7 +148,7 @@ export class PrayerService {
       WHERE id = $${values.length - 1}::uuid
         AND user_id = $${values.length}::uuid
       RETURNING id, user_id, title, text, category, is_template, play_count,
-                last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
+                last_played_at, flock_id, published_at, voice_id, created_at, updated_at
     `;
 
     const { rows } = await db.query(query, values);
@@ -184,10 +189,10 @@ export class PrayerService {
        WHERE id = $1::uuid
          AND user_id = $2::uuid
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, voice_id, created_at, updated_at`,
       [prayerId, userId]
     );
-    
+
     if (!rows[0]) throw new NotFoundError('Prayer');
     return mapRowToPrayer(rows[0]);
   }
@@ -199,7 +204,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
-              last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at
+              last_played_at, flock_id, published_at, voice_id, created_at, updated_at
        FROM prayers
        WHERE is_template = true
        ORDER BY category, title`
@@ -232,7 +237,7 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template, p.play_count,
-              p.last_played_at, p.flock_id, p.published_at, p.listen_count,
+              p.last_played_at, p.flock_id, p.published_at,
               p.voice_id, p.created_at, p.updated_at,
               af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
@@ -255,7 +260,7 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template,
               p.play_count, p.last_played_at, p.flock_id, p.published_at,
-              p.listen_count, p.voice_id, p.created_at, p.updated_at,
+              p.voice_id, p.created_at, p.updated_at,
               u.name AS leader_name, f.name AS flock_name,
               af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
@@ -281,7 +286,7 @@ export class PrayerService {
     const { rows } = await db.query(
       `SELECT p.id, p.user_id, p.title, p.text, p.category, p.is_template,
               p.play_count, p.last_played_at, p.flock_id, p.published_at,
-              p.listen_count, p.voice_id, p.created_at, p.updated_at,
+              p.voice_id, p.created_at, p.updated_at,
               u.name AS leader_name, f.name AS flock_name,
               af.s3_url AS audio_url, af.provider AS audio_provider
        FROM prayers p
@@ -305,11 +310,13 @@ export class PrayerService {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `UPDATE prayers
-       SET listen_count = listen_count + 1, updated_at = NOW()
+       SET play_count = play_count + 1,
+           last_played_at = NOW(),
+           updated_at = NOW()
        WHERE id = $1::uuid
          AND flock_id IS NOT NULL
        RETURNING id, user_id, title, text, category, is_template, play_count,
-                 last_played_at, flock_id, published_at, listen_count, voice_id, created_at, updated_at`,
+                 last_played_at, flock_id, published_at, voice_id, created_at, updated_at`,
       [prayerId]
     );
     if (!rows[0]) throw new NotFoundError('Flock prayer');

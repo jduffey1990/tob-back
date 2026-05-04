@@ -9,7 +9,7 @@ export interface Prayer {
   lastPlayedAt?: Date | null;     // last time this prayer was played
   flockId?: string | null;        // uuid - if set, this prayer is published to a flock
   publishedAt?: Date | null;      // when it was published to the flock
-  listenCount: number;            // flock listen count
+  listenCount: number;            // deprecated alias of playCount; kept for old iOS clients — drop with the alias in prayerService.mapRowToPrayer
   voiceId?: string | null;        // pinned playback voice (nullable until iOS catches up — then NOT NULL)
   // Audio info (joined from audio_files for flock prayer responses)
   audioUrl?: string | null;
