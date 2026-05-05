@@ -17,10 +17,15 @@ function mapRowToPrayOnItItem(row: any): PrayOnItItem {
     relationship: row.relationship ?? null,
     prayerFocus: row.prayer_focus ?? null,
     notes: row.notes ?? null,
+    fromRequest: row.from_request === true,
+    requestName: row.request_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
+
+const PRAY_ON_IT_COLUMNS = `id, user_id, name, category, relationship, prayer_focus, notes,
+              from_request, request_name, created_at, updated_at`;
 
 export class PrayOnItService {
   /**
@@ -29,10 +34,9 @@ export class PrayOnItService {
   public static async findUserItems(userId: string): Promise<PrayOnItItem[]> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, user_id, name, category, relationship, prayer_focus, notes,
-              created_at, updated_at
+      `SELECT ${PRAY_ON_IT_COLUMNS}
        FROM pray_on_it_items
-       WHERE user_id = $1::uuid 
+       WHERE user_id = $1::uuid
        ORDER BY created_at DESC`,
       [userId]
     );
@@ -48,10 +52,9 @@ export class PrayOnItService {
   ): Promise<PrayOnItItem | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
-      `SELECT id, user_id, name, category, relationship, prayer_focus, notes,
-              created_at, updated_at
+      `SELECT ${PRAY_ON_IT_COLUMNS}
        FROM pray_on_it_items
-       WHERE id = $1::uuid 
+       WHERE id = $1::uuid
          AND user_id = $2::uuid
        LIMIT 1`,
       [itemId, userId]
@@ -80,10 +83,9 @@ export class PrayOnItService {
     const db = PostgresService.getInstance();
     
     const { rows } = await db.query(
-      `INSERT INTO pray_on_it_items (user_id, name, category, relationship, prayer_focus, notes)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6)
-       RETURNING id, user_id, name, category, relationship, prayer_focus, notes,
-                 created_at, updated_at`,
+      `INSERT INTO pray_on_it_items (user_id, name, category, relationship, prayer_focus, notes, from_request, request_name)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${PRAY_ON_IT_COLUMNS}`,
       [
         input.userId,
         input.name,
@@ -91,9 +93,11 @@ export class PrayOnItService {
         input.relationship ?? null,
         input.prayerFocus ?? null,
         input.notes ?? null,
+        input.fromRequest ?? false,
+        input.requestName ?? null,
       ]
     );
-    
+
     return mapRowToPrayOnItItem(rows[0]);
   }
 
@@ -151,8 +155,7 @@ export class PrayOnItService {
        SET ${fields.join(', ')}
        WHERE id = $${paramCount}::uuid
          AND user_id = $${paramCount + 1}::uuid
-       RETURNING id, user_id, name, category, relationship, prayer_focus, notes,
-                 created_at, updated_at`,
+       RETURNING ${PRAY_ON_IT_COLUMNS}`,
       values
     );
     

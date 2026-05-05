@@ -17,6 +17,8 @@ export interface PrayOnItItem {
   relationship?: string | null;
   prayerFocus?: string | null;
   notes?: string | null;
+  fromRequest: boolean;
+  requestName?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +33,8 @@ export interface CreatePrayOnItItemInput {
   relationship?: string;
   prayerFocus?: string;
   notes?: string;
+  fromRequest?: boolean;
+  requestName?: string | null;
 }
 
 /**

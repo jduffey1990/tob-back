@@ -446,6 +446,8 @@ export const prayerRoutes: ServerRoute[] = [
             relationship: Joi.string().optional().allow(null, ''),
             prayerFocus: Joi.string().optional().allow(null, ''),
             notes: Joi.string().optional().allow(null, ''),
+            fromRequest: Joi.boolean().optional(),
+            requestName: Joi.string().optional().allow(null, ''),
           })).optional(),
           customContext: Joi.string().optional().allow(null, ''),
         }),

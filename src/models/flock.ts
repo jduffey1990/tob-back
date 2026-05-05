@@ -52,5 +52,6 @@ export interface FlockPrayerRequest {
   prayerFocus: string | null;
   notes: string | null;
   status: 'pending' | 'approved' | 'denied';
+  anonymize: boolean;
   createdAt: Date;
 }

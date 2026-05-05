@@ -454,14 +454,16 @@ export const flockRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const { items } = request.payload as {
+        const { items, anonymize } = request.payload as {
           items: Array<{ name: string; category?: string; prayerFocus?: string; notes?: string }>;
+          anonymize?: boolean;
         };
 
         const results = await FlockService.sharePrayerRequests(
           authUser.id,
           authUser.name,
-          items
+          items,
+          anonymize === true
         );
 
         return h.response({
@@ -486,6 +488,7 @@ export const flockRoutes: ServerRoute[] = [
             prayerFocus: Joi.string().optional().allow('', null),
             notes: Joi.string().optional().allow('', null),
           })).min(1).required(),
+          anonymize: Joi.boolean().optional().default(false),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
@@ -540,12 +543,18 @@ export const flockRoutes: ServerRoute[] = [
 
           // 2. Add to leader's pray-on-it list (NOT a flock prayer)
           const category = (prayerRequest.category as PrayOnItCategory) || 'other';
+          const trimmedMemberName = prayerRequest.memberName?.trim();
+          const requestName = prayerRequest.anonymize || !trimmedMemberName
+            ? null
+            : trimmedMemberName;
           const prayOnItItem = await PrayOnItService.createItem({
             userId: authUser.id,
             name: prayerRequest.name,
             category,
             prayerFocus: prayerRequest.prayerFocus || undefined,
             notes: prayerRequest.notes || undefined,
+            fromRequest: true,
+            requestName,
           });
 
           return h.response({ success: true, prayOnItItem }).code(200);

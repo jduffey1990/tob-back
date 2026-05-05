@@ -11,6 +11,25 @@ import {
 } from '../models/flock';
 import crypto from 'crypto';
 
+function mapRowToFlockPrayerRequest(row: any): FlockPrayerRequest {
+  return {
+    id: row.id,
+    flockId: row.flock_id,
+    memberUserId: row.member_user_id,
+    memberName: row.member_name,
+    name: row.name,
+    category: row.category,
+    prayerFocus: row.prayer_focus,
+    notes: row.notes,
+    status: (row.status ?? 'pending') as 'pending' | 'approved' | 'denied',
+    anonymize: row.anonymize === true,
+    createdAt: row.created_at,
+  };
+}
+
+const FLOCK_PRAYER_REQUEST_COLUMNS = `id, flock_id, member_user_id, member_name,
+       name, category, prayer_focus, notes, status, anonymize, created_at`;
+
 // Map db row -> Flock
 function mapRowToFlock(row: any): Flock {
   return {
@@ -214,7 +233,8 @@ export class FlockService {
   public static async sharePrayerRequests(
     memberUserId: string,
     memberName: string,
-    items: Array<{ name: string; category?: string; prayerFocus?: string; notes?: string }>
+    items: Array<{ name: string; category?: string; prayerFocus?: string; notes?: string }>,
+    anonymize: boolean = false
   ): Promise<FlockPrayerRequest[]> {
     const db = PostgresService.getInstance();
 
@@ -233,24 +253,13 @@ export class FlockService {
     for (const membership of memberships) {
       for (const item of items) {
         const { rows } = await db.query(
-          `INSERT INTO flock_prayer_requests (flock_id, member_user_id, member_name, name, category, prayer_focus, notes)
-           VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
-           RETURNING id, flock_id, member_user_id, member_name, name, category, prayer_focus, notes, created_at`,
-          [membership.flock_id, memberUserId, memberName, item.name, item.category || null, item.prayerFocus || null, item.notes || null]
+          `INSERT INTO flock_prayer_requests (flock_id, member_user_id, member_name, name, category, prayer_focus, notes, anonymize)
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)
+           RETURNING ${FLOCK_PRAYER_REQUEST_COLUMNS}`,
+          [membership.flock_id, memberUserId, memberName, item.name, item.category || null, item.prayerFocus || null, item.notes || null, anonymize]
         );
 
-        results.push({
-          id: rows[0].id,
-          flockId: rows[0].flock_id,
-          memberUserId: rows[0].member_user_id,
-          memberName: rows[0].member_name,
-          name: rows[0].name,
-          category: rows[0].category,
-          prayerFocus: rows[0].prayer_focus,
-          notes: rows[0].notes,
-          status: rows[0].status ?? 'pending',
-          createdAt: rows[0].created_at,
-        });
+        results.push(mapRowToFlockPrayerRequest(rows[0]));
       }
     }
 
@@ -265,7 +274,8 @@ export class FlockService {
 
     const { rows } = await db.query(
       `SELECT fpr.id, fpr.flock_id, fpr.member_user_id, fpr.member_name,
-              fpr.name, fpr.category, fpr.prayer_focus, fpr.notes, fpr.status, fpr.created_at
+              fpr.name, fpr.category, fpr.prayer_focus, fpr.notes, fpr.status,
+              fpr.anonymize, fpr.created_at
        FROM flock_prayer_requests fpr
        JOIN flocks f ON f.id = fpr.flock_id
        WHERE f.leader_user_id = $1::uuid
@@ -274,18 +284,7 @@ export class FlockService {
       [leaderUserId]
     );
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      flockId: row.flock_id,
-      memberUserId: row.member_user_id,
-      memberName: row.member_name,
-      name: row.name,
-      category: row.category,
-      prayerFocus: row.prayer_focus,
-      notes: row.notes,
-      status: row.status,
-      createdAt: row.created_at,
-    }));
+    return rows.map(mapRowToFlockPrayerRequest);
   }
 
   /**
@@ -303,7 +302,8 @@ export class FlockService {
          AND f.leader_user_id = $2::uuid
          AND fpr.status = 'pending'
        RETURNING fpr.id, fpr.flock_id, fpr.member_user_id, fpr.member_name,
-                 fpr.name, fpr.category, fpr.prayer_focus, fpr.notes, fpr.status, fpr.created_at`,
+                 fpr.name, fpr.category, fpr.prayer_focus, fpr.notes, fpr.status,
+                 fpr.anonymize, fpr.created_at`,
       [requestId, leaderUserId]
     );
 
@@ -311,18 +311,7 @@ export class FlockService {
       throw new NotFoundError('Prayer request');
     }
 
-    return {
-      id: rows[0].id,
-      flockId: rows[0].flock_id,
-      memberUserId: rows[0].member_user_id,
-      memberName: rows[0].member_name,
-      name: rows[0].name,
-      category: rows[0].category,
-      prayerFocus: rows[0].prayer_focus,
-      notes: rows[0].notes,
-      status: rows[0].status,
-      createdAt: rows[0].created_at,
-    };
+    return mapRowToFlockPrayerRequest(rows[0]);
   }
 
   /**

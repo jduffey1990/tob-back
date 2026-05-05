@@ -50,6 +50,8 @@ export interface PrayOnItItemPayload {
   relationship?: string | null;         // 'mother', 'friend', etc.
   prayerFocus?: string | null;          // 'healing', 'guidance', etc.
   notes?: string | null;
+  fromRequest?: boolean;                // True if originated from a flock prayer request
+  requestName?: string | null;          // Name of the requesting flock member; null = anonymous
 }
 
 // Enums

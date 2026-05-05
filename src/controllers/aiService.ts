@@ -176,12 +176,14 @@ export class AIService {
     isDenominationOverride: boolean = false  // NEW: Flag if this is an override
   ): Promise<OpenAIResponse> {
     
+    const hasIntercessionItems = (request.prayOnItItems || []).some(item => item.fromRequest === true);
     const systemPrompt = this.buildSystemPrompt(
       request.prayerType,
       request.tone,
       denomination,
       isDenominationOverride,
-      request.length
+      request.length,
+      hasIntercessionItems
     );
     const userPrompt = this.buildUserPrompt(request);
     const maxTokens = this.getMaxTokensForLength(request.length);
@@ -225,7 +227,8 @@ export class AIService {
     tone: string,
     denomination: string,
     isDenominationOverride: boolean = false,
-    length: string = 'standard'
+    length: string = 'standard',
+    hasIntercessionItems: boolean = false
   ): string {
 
     // Instruction Priority/Ranking System
@@ -235,6 +238,10 @@ export class AIService {
       2. USER CONTEXT: If the user's additional context contradicts their profile denomination or settings, honor their context.
       3. USER SETTINGS: Respect the prayer type, tone, and length settings.
       ${isDenominationOverride ? '4. User requested different tradition - honor it' : ''}`;
+
+    const intercessionGuidance = hasIntercessionItems
+      ? `\n\nSome items below are intercessions on behalf of a flock member. Pray for the named person in the third person, and where natural lift up the requester too. If the requester is identified as a flock member without a name, refer to them as "a member of this community" rather than guessing or skipping them. When the subject's name is a relational label that only makes sense relative to the requester (e.g. "Dad", "Mom", "my husband", "my sister"), and the requester is anonymous, rephrase the subject in terms of that relationship — for example, "the father of a member of this community" or "a fellow member's husband" — rather than using the bare label.`
+      : '';
 
     // Base prompt now includes denomination, priority rules, and length guidance
     const basePrompt = `You are a prayer writer. Generate in ${denomination} style. ${this.getDenominationGuidance(denomination)}
@@ -273,7 +280,7 @@ export class AIService {
     - Use ${denomination} theological/liturgical style
     - Include all people/situations mentioned
     - Structure: Opening → Body → Closing
-    - End with appropriate closing for ${denomination}`;
+    - End with appropriate closing for ${denomination}${intercessionGuidance}`;
   }
   
   /**
@@ -402,23 +409,32 @@ export class AIService {
     // Build descriptions of each Pray On It item
     const itemDescriptions = request.prayOnItItems.map(item => {
       let desc = `- ${item.name}`;
-      
+
       if (item.relationship) {
         desc += ` (${item.relationship})`;
       }
-      
+
       if (item.category) {
         desc += ` [${item.category}]`;
       }
-      
-      if (item.prayerFocus) {
-        desc += ` - Focus: ${item.prayerFocus}`;
+
+      if (item.fromRequest) {
+        const requesterPhrase = item.requestName && item.requestName.trim().length > 0
+          ? `shared by ${item.requestName.trim()}`
+          : 'shared by a flock member';
+        desc += ` — third-party prayer request ${requesterPhrase}`;
       }
-      
+
+      if (item.prayerFocus) {
+        desc += item.fromRequest
+          ? `. Focus: ${item.prayerFocus}`
+          : ` - Focus: ${item.prayerFocus}`;
+      }
+
       if (item.notes) {
         desc += `\n  Note: ${item.notes}`;
       }
-      
+
       return desc;
     }).join('\n');
     
