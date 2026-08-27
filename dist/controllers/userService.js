@@ -18,7 +18,7 @@ const ttsService_1 = require("./ttsService");
 const AppErrors_1 = require("../errors/AppErrors");
 // Map db row -> UserSafe (snake_case -> camelCase)
 function mapRowToUserSafe(row) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     return {
         id: row.id,
         email: row.email,
@@ -30,7 +30,8 @@ function mapRowToUserSafe(row) {
         graceTierSnapshot: (_c = row.grace_tier_snapshot) !== null && _c !== void 0 ? _c : null,
         settings: (_d = row.settings) !== null && _d !== void 0 ? _d : user_1.DEFAULT_USER_SETTINGS,
         denomination: row.denomination,
-        deletedAt: (_e = row.deleted_at) !== null && _e !== void 0 ? _e : null,
+        trialVoicesRemaining: (_e = row.trial_voices_remaining) !== null && _e !== void 0 ? _e : 0,
+        deletedAt: (_f = row.deleted_at) !== null && _f !== void 0 ? _f : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -43,7 +44,7 @@ class UserService {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
             const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
        FROM users
        ORDER BY created_at DESC`);
             return rows.map(mapRowToUserSafe);
@@ -56,7 +57,7 @@ class UserService {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
             const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
          FROM users
         WHERE id = $1::uuid
         LIMIT 1`, [id]);
@@ -70,7 +71,7 @@ class UserService {
         return __awaiter(this, void 0, void 0, function* () {
             const db = postgres_service_1.PostgresService.getInstance();
             const { rows } = yield db.query(`SELECT id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-              settings, denomination, deleted_at, created_at, updated_at
+              settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
          FROM users
         WHERE email = $1
         LIMIT 1`, [email]);
@@ -91,7 +92,7 @@ class UserService {
                 const { rows } = yield db.query(`INSERT INTO users (email, password_hash, name, status, denomination)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                   settings, denomination, deleted_at, created_at, updated_at`, [input.email, input.passwordHash, input.name, status, denomination]);
+                   settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [input.email, input.passwordHash, input.name, status, denomination]);
                 return mapRowToUserSafe(rows[0]);
             }
             catch (err) {
@@ -128,7 +129,7 @@ class UserService {
           updated_at = NOW()
       WHERE id = $${values.length}::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                settings, denomination, deleted_at, created_at, updated_at
+                settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at
     `;
             const { rows } = yield db.query(query, values);
             if (!rows[0])
@@ -174,7 +175,7 @@ class UserService {
            updated_at = NOW()
        WHERE id = $2::uuid
        RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                 settings, denomination, deleted_at, created_at, updated_at`, [JSON.stringify(settingsUpdate), userId]);
+                 settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [JSON.stringify(settingsUpdate), userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
             return mapRowToUserSafe(rows[0]);
@@ -189,7 +190,7 @@ class UserService {
         WHERE id = $1::uuid
           AND status = 'inactive'
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                  settings, denomination, deleted_at, created_at, updated_at`, [userId]);
+                  settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0]) {
                 // Not found OR already active/disabled
                 throw new Error('Activation failed: user not found or already active');
@@ -228,7 +229,7 @@ class UserService {
           SET deleted_at = NOW()
         WHERE id = $1::uuid
         RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                  settings, denomination, deleted_at, created_at, updated_at`, [userId]);
+                  settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
             return mapRowToUserSafe(rows[0]);
@@ -291,7 +292,7 @@ class UserService {
           updated_at = NOW()
       WHERE id = $2::uuid
       RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                settings, denomination, deleted_at, created_at, updated_at`, [newPasswordHash, userId]);
+                settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [newPasswordHash, userId]);
             if (!rows[0])
                 throw new AppErrors_1.NotFoundError('User');
             return mapRowToUserSafe(rows[0]);
@@ -313,7 +314,7 @@ class UserService {
             SET updated_at = NOW()
           WHERE id = $1::uuid
           RETURNING id, email, name, status, subscription_tier, subscription_expires_at, grace_period_ends_at, grace_tier_snapshot,
-                    settings, denomination, deleted_at, created_at, updated_at`, [userId]);
+                    settings, denomination, trial_voices_remaining, deleted_at, created_at, updated_at`, [userId]);
                 if (!rows[0])
                     throw new AppErrors_1.NotFoundError('User');
                 return mapRowToUserSafe(rows[0]);

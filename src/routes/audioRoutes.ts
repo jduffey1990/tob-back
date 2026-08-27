@@ -4,6 +4,8 @@
 import { Request, ResponseToolkit, ServerRoute } from '@hapi/hapi';
 import Joi from 'joi';
 import { AudioService } from '../controllers/audioService';
+import { PrayerService } from '../controllers/prayerService';
+import { TTSService } from '../controllers/ttsService';
 import type { UserSafe } from '../models/user';
 
 export const audioRoutes: ServerRoute[] = [
@@ -30,15 +32,10 @@ export const audioRoutes: ServerRoute[] = [
         }
 
         // voiceId is optional. New clients omit it and get audio for the prayer's
-        // pinned voice; the override exists so the picker menu can probe a
-        // non-pinned voice. Old clients that still pass the user's selectedVoiceId
-        // continue to work unchanged.
+        // pinned voice (NOT NULL); the override exists so the picker menu can
+        // probe a non-pinned voice. Old clients that still pass the user's
+        // selectedVoiceId continue to work unchanged.
         const effectiveVoiceId = voiceIdOverride ?? prayer.voiceId;
-        if (!effectiveVoiceId) {
-          return h.response({
-            error: 'Prayer has no pinned voice and no voiceId override was provided'
-          }).code(400);
-        }
 
         const state = await AudioService.getAudioState(prayerId, effectiveVoiceId);
 
@@ -92,14 +89,9 @@ export const audioRoutes: ServerRoute[] = [
           }).code(404);
         }
 
-        // voiceId optional — defaults to the pinned voice. Pass an explicit
-        // override when the picker menu is regenerating into a non-pinned voice.
+        // voiceId optional — defaults to the pinned voice (NOT NULL). Pass an
+        // explicit override when regenerating into a non-pinned voice.
         const effectiveVoiceId = payload.voiceId ?? prayer.voiceId;
-        if (!effectiveVoiceId) {
-          return h.response({
-            error: 'Prayer has no pinned voice and no voiceId override was provided'
-          }).code(400);
-        }
 
         const currentState = await AudioService.getAudioState(prayerId, effectiveVoiceId);
 
@@ -191,6 +183,144 @@ export const audioRoutes: ServerRoute[] = [
       },
       description: 'Generate TTS audio for a prayer asynchronously',
       notes: 'Returns 202 if queued, 200 if already exists',
+      tags: ['api', 'audio', 'prayers']
+    }
+  },
+
+  // ============================================
+  // PUT /prayers/{id}/voice - Repin a prayer's playback voice
+  // ============================================
+  {
+    method: 'PUT',
+    path: '/prayers/{id}/voice',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id: prayerId } = request.params;
+        const { voiceId } = request.payload as { voiceId: string };
+
+        const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
+        if (!prayer) {
+          return h.response({ error: 'Prayer not found' }).code(404);
+        }
+
+        // Flock prayers serve one shared audio per prayer — a repin would
+        // change what every member hears. Personal prayers only.
+        if (prayer.flockId) {
+          return h.response({
+            error: 'Flock prayer voices cannot be changed'
+          }).code(403);
+        }
+
+        const voice = await TTSService.getVoiceById(voiceId);
+        if (!voice) {
+          return h.response({
+            error: 'Invalid voice ID',
+            message: `Voice ${voiceId} not found`
+          }).code(400);
+        }
+
+        // Apple voices synthesize on-device — nothing to generate, pin and go.
+        if (voice.provider === 'apple') {
+          await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId });
+          return h.response({
+            voiceId,
+            audioState: 'ON_DEVICE',
+            trialCreditConsumed: false
+          }).code(200);
+        }
+
+        const currentState = await AudioService.getAudioState(prayerId, voiceId);
+
+        // Cached audio repins free regardless of tier: the spend already
+        // happened, replay costs nothing. Only a fresh generation is gated.
+        if (currentState.state === 'READY') {
+          await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId });
+          return h.response({
+            voiceId,
+            audioState: 'READY',
+            audioUrl: currentState.audioUrl,
+            trialCreditConsumed: false
+          }).code(200);
+        }
+
+        // Already building (e.g. picker probe raced a creation enqueue):
+        // whoever enqueued it passed the gate — pin and report progress.
+        if (currentState.state === 'BUILDING') {
+          await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId });
+          return h.response({
+            voiceId,
+            audioState: 'BUILDING',
+            trialCreditConsumed: false
+          }).code(202);
+        }
+
+        // MISSING: run the TTS pathway. enqueueGeneration is the single
+        // chokepoint for tier gating + trial-credit consumption; call it
+        // BEFORE pinning so a rejected voice never sticks to the prayer.
+        // Read the credit posture first so the response can say whether
+        // this call consumed one.
+        const { consumesTrialCredit } = await TTSService.canUserUseVoiceWithTrial(
+          authUser.id, authUser.subscriptionTier, voice
+        );
+
+        await AudioService.enqueueGeneration(prayerId, prayer.text, voiceId, authUser.id);
+        await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId });
+
+        const trialVoicesRemaining = await TTSService.getTrialVoicesRemaining(authUser.id);
+
+        return h.response({
+          voiceId,
+          audioState: 'BUILDING',
+          trialCreditConsumed: consumesTrialCredit,
+          trialVoicesRemaining
+        }).code(202);
+
+      } catch (error: any) {
+        console.error('❌ [audioRoutes] Repin voice error:', error);
+
+        if (error.message.includes('requires') || error.message.includes('INVALID_TIER')) {
+          return h.response({
+            error: 'Voice not available in your subscription tier',
+            message: error.message,
+            upgradeRequired: true
+          }).code(403);
+        }
+
+        if (error.message.includes('already in progress') || error.message.includes('ALREADY_BUILDING')) {
+          return h.response({
+            voiceId: (request.payload as { voiceId: string }).voiceId,
+            audioState: 'BUILDING',
+            trialCreditConsumed: false
+          }).code(202);
+        }
+
+        if (error.message.includes('not found')) {
+          return h.response({
+            error: 'Invalid voice ID',
+            message: error.message
+          }).code(400);
+        }
+
+        return h.response({
+          error: 'Internal server error',
+          message: error.message
+        }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          voiceId: Joi.string().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Repin a personal prayer\'s playback voice',
+      notes: 'Cached voices repin instantly and free; uncached server voices run the TTS pathway (tier gate + trial credit). Flock prayers are rejected.',
       tags: ['api', 'audio', 'prayers']
     }
   }

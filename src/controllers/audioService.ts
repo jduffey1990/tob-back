@@ -78,12 +78,12 @@ export class AudioService {
   public static async getPrayerForUser(
     prayerId: string,
     userId: string
-  ): Promise<{ id: string; text: string; title: string; voiceId: string | null } | null> {
+  ): Promise<{ id: string; text: string; title: string; voiceId: string; flockId: string | null } | null> {
 
     const db = PostgresService.getInstance();
 
-    const result = await db.query<{ id: string; text: string; title: string; voice_id: string | null }>(
-      `SELECT id, text, title, voice_id
+    const result = await db.query<{ id: string; text: string; title: string; voice_id: string; flock_id: string | null }>(
+      `SELECT id, text, title, voice_id, flock_id
        FROM prayers
        WHERE id = $1 AND user_id = $2
        LIMIT 1`,
@@ -95,7 +95,13 @@ export class AudioService {
     }
 
     const row = result.rows[0];
-    return { id: row.id, text: row.text, title: row.title, voiceId: row.voice_id ?? null };
+    return {
+      id: row.id,
+      text: row.text,
+      title: row.title,
+      voiceId: row.voice_id, // NOT NULL since the voice-id-not-null migration
+      flockId: row.flock_id ?? null,
+    };
   }
   
   /**
@@ -143,6 +149,48 @@ export class AudioService {
     return rowToAudioFile(result.rows[0]);
   }
   
+  /**
+   * Copy an existing audio file (S3 object + audio_files row) from one prayer
+   * to another for the same voice. Used when a user adds a template whose
+   * audio is already generated — avoids a redundant TTS spend entirely.
+   *
+   * @returns true if a source existed and was copied, false if no source audio
+   */
+  public static async copyAudioFromPrayer(
+    fromPrayerId: string,
+    toPrayerId: string,
+    voiceId: string
+  ): Promise<boolean> {
+    const db = PostgresService.getInstance();
+
+    const source = await db.query<AudioFileRow>(
+      `SELECT * FROM audio_files
+       WHERE prayer_id = $1 AND voice_id = $2
+       LIMIT 1`,
+      [fromPrayerId, voiceId]
+    );
+
+    if (source.rows.length === 0) {
+      return false;
+    }
+
+    const sourceFile = rowToAudioFile(source.rows[0]);
+    const { s3Key, s3Url } = await S3Service.copyAudio(fromPrayerId, toPrayerId, voiceId);
+
+    await AudioService.saveAudioFile({
+      prayerId: toPrayerId,
+      voiceId,
+      s3Bucket: S3Service.getBucketName(),
+      s3Key,
+      s3Url,
+      fileSizeBytes: sourceFile.fileSizeBytes ?? 0,
+      durationSeconds: sourceFile.durationSeconds,
+      provider: sourceFile.provider ?? 'unknown',
+    });
+
+    return true;
+  }
+
   /**
    * Delete all audio files for a prayer (when prayer is deleted)
    * 

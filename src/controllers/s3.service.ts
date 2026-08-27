@@ -1,13 +1,14 @@
 // src/controllers/s3.service.ts
 // S3 service for storing TTS audio files
 
-import { 
-  DeleteObjectCommand, 
-  DeleteObjectsCommand,      
-  GetObjectCommand, 
-  ListObjectsV2Command,      
-  PutObjectCommand, 
-  S3Client 
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client
 } from '@aws-sdk/client-s3';
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -119,6 +120,50 @@ export class S3Service {
     } catch (error: any) {
       console.error(`❌ S3 upload failed:`, error);
       throw new Error(`S3 upload failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Copy an existing audio object to another prayer's key.
+   * Used when a user adds a template whose audio already exists — a
+   * CopyObject is near-free versus regenerating the same TTS.
+   *
+   * @returns Destination S3 key and public URL (same format as uploadAudio)
+   */
+  public static async copyAudio(
+    fromPrayerId: string,
+    toPrayerId: string,
+    voiceId: string
+  ): Promise<{ s3Key: string; s3Url: string }> {
+    S3Service.ensureInitialized();
+
+    const sourceKey = S3Service.generateKey(fromPrayerId, voiceId);
+    const destKey = S3Service.generateKey(toPrayerId, voiceId);
+
+    const command = new CopyObjectCommand({
+      Bucket: S3Service.bucket,
+      CopySource: `${S3Service.bucket}/${encodeURIComponent(sourceKey)}`,
+      Key: destKey,
+      ContentType: 'audio/mpeg',
+      CacheControl: 'max-age=31536000', // 1 year - audio files are immutable
+      MetadataDirective: 'REPLACE',
+      Metadata: {
+        'prayer-id': toPrayerId,
+        'voice-id': voiceId,
+      },
+    });
+
+    try {
+      await S3Service.client.send(command);
+
+      const s3Url = `https://${S3Service.bucket}.s3.${process.env.AWS_REGION || 'us-east-2'}.amazonaws.com/${destKey}`;
+
+      console.log(`✅ Copied audio in S3: ${sourceKey} -> ${destKey}`);
+
+      return { s3Key: destKey, s3Url };
+    } catch (error: any) {
+      console.error(`❌ S3 copy failed:`, error);
+      throw new Error(`S3 copy failed: ${error.message}`);
     }
   }
 

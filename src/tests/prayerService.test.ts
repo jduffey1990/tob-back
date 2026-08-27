@@ -569,31 +569,23 @@ describe('PrayerService', () => {
   });
 
   describe('getPrayerTemplates', () => {
-    it('should return all template prayers ordered by category and title', async () => {
+    it('should return templates with per-voice audio maps ordered by category and title', async () => {
       const mockRows = [
         {
           id: 'template-1',
-          user_id: 'admin-123',
+          template_key: 'hail-mary',
           title: "Hail Mary",
           text: 'Hail Mary, full of grace...',
           category: 'traditional',
-          is_template: true,
-          play_count: 100,
-          last_played_at: null,
-          created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01')
+          audio: { 'en-US-JennyNeural': 'https://bucket.s3.us-east-2.amazonaws.com/audio/template-1/en-US-JennyNeural.mp3' }
         },
         {
           id: 'template-2',
-          user_id: 'admin-123',
+          template_key: 'lords-prayer',
           title: "Lord's Prayer",
           text: 'Our Father who art in heaven...',
           category: 'traditional',
-          is_template: true,
-          play_count: 150,
-          last_played_at: null,
-          created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01')
+          audio: {}
         },
       ];
 
@@ -602,16 +594,15 @@ describe('PrayerService', () => {
       const result = await PrayerService.getPrayerTemplates();
 
       expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE is_template = true'),
-        undefined
+        expect.stringContaining('WHERE p.is_template = true')
       );
       expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('ORDER BY category, title'),
-        undefined
+        expect.stringContaining('ORDER BY p.category, p.title')
       );
       expect(result).toHaveLength(2);
-      expect(result[0].isTemplate).toBe(true);
-      expect(result[1].isTemplate).toBe(true);
+      expect(result[0].templateKey).toBe('hail-mary');
+      expect(result[0].audio['en-US-JennyNeural']).toContain('.mp3');
+      expect(result[1].audio).toEqual({});
     });
 
     it('should return empty array when no templates exist', async () => {
@@ -620,29 +611,6 @@ describe('PrayerService', () => {
       const result = await PrayerService.getPrayerTemplates();
 
       expect(result).toEqual([]);
-    });
-
-    it('should exclude deleted templates', async () => {
-      const mockRows = [
-        {
-          id: 'template-1',
-          user_id: 'admin-123',
-          title: "Active Template",
-          text: 'Template text',
-          category: 'traditional',
-          is_template: true,
-          play_count: 50,
-          last_played_at: null,
-          created_at: new Date('2024-01-01'),
-          updated_at: new Date('2024-01-01')
-        },
-      ];
-
-      mockDb.query.mockResolvedValue({ rows: mockRows });
-
-      const result = await PrayerService.getPrayerTemplates();
-
-      expect(result).toHaveLength(1);
     });
   });
 

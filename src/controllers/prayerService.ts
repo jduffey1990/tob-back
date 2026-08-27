@@ -1,5 +1,5 @@
 // src/controllers/prayerService.ts
-import { CreatePrayerInput, Prayer, FlockPrayerWithLeader, UpdatePrayerInput } from '../models/prayer';
+import { CreatePrayerInput, Prayer, FlockPrayerWithLeader, PrayerTemplateDTO, UpdatePrayerInput } from '../models/prayer';
 import { PostgresService } from './postgres.service';
 import { TTSService } from './ttsService';
 import { NotFoundError } from '../errors';
@@ -198,18 +198,50 @@ export class PrayerService {
   }
 
   /**
-   * Get prayer templates (for the template library)
+   * Get prayer templates (for the public template library).
+   * `audio` aggregates every pre-generated (voice_id -> s3_url) pair so
+   * clients — including unauthenticated guests — can stream any voice.
    */
-  public static async getPrayerTemplates(): Promise<Prayer[]> {
+  public static async getPrayerTemplates(): Promise<PrayerTemplateDTO[]> {
+    const db = PostgresService.getInstance();
+    const { rows } = await db.query(
+      `SELECT p.id, p.template_key, p.title, p.text, p.category,
+              COALESCE(
+                json_object_agg(af.voice_id, af.s3_url)
+                  FILTER (WHERE af.id IS NOT NULL),
+                '{}'::json
+              ) AS audio
+       FROM prayers p
+       LEFT JOIN audio_files af ON af.prayer_id = p.id
+       WHERE p.is_template = true
+       GROUP BY p.id
+       ORDER BY p.category, p.title`
+    );
+    return rows.map((row: any) => ({
+      id: row.id,
+      templateKey: row.template_key,
+      title: row.title,
+      text: row.text,
+      category: row.category,
+      audio: row.audio,
+    }));
+  }
+
+  /**
+   * Look up a template row by its stable key (for the add-from-template copy path)
+   */
+  public static async findTemplateByKey(templateKey: string): Promise<Prayer | null> {
     const db = PostgresService.getInstance();
     const { rows } = await db.query(
       `SELECT id, user_id, title, text, category, is_template, play_count,
               last_played_at, flock_id, published_at, voice_id, created_at, updated_at
        FROM prayers
        WHERE is_template = true
-       ORDER BY category, title`
+         AND template_key = $1
+       LIMIT 1`,
+      [templateKey]
     );
-    return rows.map(mapRowToPrayer);
+    return rows[0] ? mapRowToPrayer(rows[0]) : null;
   }
 
   /**

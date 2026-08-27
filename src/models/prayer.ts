@@ -10,7 +10,7 @@ export interface Prayer {
   flockId?: string | null;        // uuid - if set, this prayer is published to a flock
   publishedAt?: Date | null;      // when it was published to the flock
   listenCount: number;            // deprecated alias of playCount; kept for old iOS clients — drop with the alias in prayerService.mapRowToPrayer
-  voiceId?: string | null;        // pinned playback voice (nullable until iOS catches up — then NOT NULL)
+  voiceId?: string | null;        // pinned playback voice (NOT NULL in DB; optional here for JOIN-less mappers)
   // Audio info (joined from audio_files for flock prayer responses)
   audioUrl?: string | null;
   voiceName?: string | null;
@@ -23,6 +23,20 @@ export interface Prayer {
 export interface FlockPrayerWithLeader extends Prayer {
   leaderName: string;
   flockName: string;
+}
+
+/**
+ * Public template library entry (GET /prayer-templates, auth: false).
+ * `audio` maps voice_id -> public S3 URL for every pre-generated server voice;
+ * Apple voices synthesize on-device and never appear in the map.
+ */
+export interface PrayerTemplateDTO {
+  id: string;                     // uuid — keys the S3 audio objects
+  templateKey: string;            // stable slug, shared with the iOS bundled list
+  title: string;
+  text: string;
+  category: string;
+  audio: Record<string, string>;
 }
 
 export type PrayerSafe = Prayer; // No sensitive fields to exclude
@@ -41,6 +55,7 @@ export interface UpdatePrayerInput {
   title?: string;
   text?: string;
   category?: string;
+  voiceId?: string;  // repin path only (PUT /prayers/{id}/voice) — PATCH's Joi whitelist excludes it
 }
 
 export interface PrayerWithUserInfo extends Prayer {

@@ -83,10 +83,11 @@ export const prayerRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const { title, text, category } = request.payload as {
+        const { title, text, category, templateKey } = request.payload as {
           title: string;
           text: string;
           category?: string;
+          templateKey?: string;
         };
 
         // Block creation during the post-expiry grace period (anti-abuse),
@@ -121,16 +122,42 @@ export const prayerRoutes: ServerRoute[] = [
         // Auto-trigger TTS for the pinned voice (Apple voices play on-device).
         const currentVoice = await TTSService.getVoiceById(selectedVoiceId);
         if (currentVoice && currentVoice.provider !== 'apple') {
-          console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
-          try {
-            await AudioService.enqueueGeneration(
-              newPrayer.id,
-              text,
-              currentVoice.id,
-              authUser.id
-            );
-          } catch (err: any) {
-            console.error('[prayers] TTS enqueue failed (non-fatal):', err?.message || err);
+          // Template fast path: the template's audio for this voice already
+          // exists in S3, so copy it instead of regenerating. Only when the
+          // tier owns the voice outright — trial-credit users go through the
+          // enqueueGeneration chokepoint so credit accounting stays uniform.
+          let copied = false;
+          if (templateKey && TTSService.canUserUseVoice(authUser.subscriptionTier, currentVoice)) {
+            try {
+              const template = await PrayerService.findTemplateByKey(templateKey);
+              if (template) {
+                copied = await AudioService.copyAudioFromPrayer(
+                  template.id,
+                  newPrayer.id,
+                  currentVoice.id
+                );
+              }
+              if (copied) {
+                console.log(`📋 [prayers] Copied template audio: ${templateKey} (${currentVoice.name})`);
+              }
+            } catch (err: any) {
+              console.error('[prayers] Template audio copy failed (non-fatal), falling back to TTS:', err?.message || err);
+              copied = false;
+            }
+          }
+
+          if (!copied) {
+            console.log(`🔊 [prayers] Auto-triggering TTS: ${currentVoice.name} (${currentVoice.provider})`);
+            try {
+              await AudioService.enqueueGeneration(
+                newPrayer.id,
+                text,
+                currentVoice.id,
+                authUser.id
+              );
+            } catch (err: any) {
+              console.error('[prayers] TTS enqueue failed (non-fatal):', err?.message || err);
+            }
           }
         }
 
@@ -147,6 +174,7 @@ export const prayerRoutes: ServerRoute[] = [
           title: Joi.string().required().max(255).trim(),
           text: Joi.string().required().trim(),
           category: Joi.string().optional().trim().allow('', null),
+          templateKey: Joi.string().optional().trim(),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
@@ -293,10 +321,16 @@ export const prayerRoutes: ServerRoute[] = [
     path: '/prayer-templates',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
-        const templates = await PrayerService.getPrayerTemplates();
-        
+        // Voice catalog rides along so unauthenticated clients (guest view)
+        // can render voice names/tiers without touching the JWT-gated /voices.
+        const [templates, voices] = await Promise.all([
+          PrayerService.getPrayerTemplates(),
+          TTSService.getAvailableVoices(),
+        ]);
+
         return h.response({
           templates,
+          voices,
           count: templates.length
         }).code(200);
       } catch (error: any) {
@@ -304,9 +338,9 @@ export const prayerRoutes: ServerRoute[] = [
         return h.response({ error: error.message }).code(500);
       }
     },
-    options: { 
+    options: {
       auth: false, // Templates are public
-      description: 'Get pre-built prayer templates (public)',
+      description: 'Get pre-built prayer templates with per-voice audio URLs (public)',
       tags: ['api', 'prayers', 'templates']
     }
   },

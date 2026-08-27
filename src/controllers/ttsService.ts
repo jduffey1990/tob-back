@@ -9,7 +9,7 @@ import { PostgresService } from './postgres.service';
 import {NotFoundError, ValidationError, ExternalServiceError} from '../errors/AppErrors'
 
 // ============================================
-// TTS Service - With Fish Audio WebSocket Streaming
+// TTS Service — Azure Neural + Fish Audio (REST)
 // ============================================
 
 export class TTSService {
@@ -83,13 +83,8 @@ export class TTSService {
           break;
           
         case 'fishaudio':
-          // NEW: Use WebSocket streaming instead of REST API
           ({ audioData, estimatedCost } = await this.generateFishAudioTTS(request.text, voice));
           break;
-
-        // case 'cartesia':
-        //   ({ audioData, estimatedCost } = await this.generateCartesiaTTS(request.text, voice));
-        //   break;
 
         default:
           throw new Error(`Unknown provider: ${voice.provider}`);
@@ -172,8 +167,7 @@ export class TTSService {
   }
   
   /**
-   * 
-   * Generate audio using Fish Audio REST API (deprecated - use streaming instead)
+   * Generate audio using the Fish Audio REST API
    */
   private static async generateFishAudioTTS(
     text: string,
@@ -231,72 +225,6 @@ export class TTSService {
     }
   }
   
-  // /**
-  //  * Generate audio using Cartesia TTS API
-  //  * Commented out — may revisit Cartesia later.
-  //  */
-  // private static async generateCartesiaTTS(
-  //   text: string,
-  //   voice: VoiceOption
-  // ): Promise<{ audioData: string; estimatedCost: number }> {
-  //
-  //   const cartesiaKey = process.env.CARTESIA_API_KEY;
-  //
-  //   if (!cartesiaKey) {
-  //     throw new ExternalServiceError('Cartesia', 'API key not configured');
-  //   }
-  //
-  //   console.log(`🟣 [TTSService] Calling Cartesia TTS...`);
-  //   console.log(`   Voice: ${voice.name} (${voice.id})`);
-  //
-  //   try {
-  //     const url = 'https://api.cartesia.ai/tts/bytes';
-  //
-  //     const requestBody = {
-  //       model_id: 'sonic-2',
-  //       transcript: text,
-  //       voice: {
-  //         mode: 'id',
-  //         id: voice.id,
-  //       },
-  //       output_format: {
-  //         container: 'mp3',
-  //         sample_rate: 44100,
-  //         bit_rate: 128000,
-  //       },
-  //     };
-  //
-  //     const response = await this.callWithRetry(() =>
-  //       axios.post(url, requestBody, {
-  //         headers: {
-  //           'Cartesia-Version': '2025-04-16',
-  //           'X-API-Key': cartesiaKey,
-  //           'Content-Type': 'application/json',
-  //         },
-  //         responseType: 'arraybuffer',
-  //         timeout: 30000,
-  //       })
-  //     );
-  //
-  //     const audioData = Buffer.from(response.data).toString('base64');
-  //
-  //     // Cartesia pricing: ~$8 per 1M characters (estimate)
-  //     const estimatedCost = (text.length / 1_000_000) * 8;
-  //
-  //     console.log(`✅ [TTSService] Cartesia TTS complete — ${Buffer.byteLength(response.data)} bytes`);
-  //
-  //     return { audioData, estimatedCost };
-  //
-  //   } catch (error: any) {
-  //     if (error.response?.status === 401) {
-  //       throw new ExternalServiceError('Cartesia', 'Invalid API key');
-  //     }
-  //     if (error.response?.status === 402) {
-  //       throw new ExternalServiceError('Cartesia', 'Insufficient balance');
-  //     }
-  //     throw new ExternalServiceError('Cartesia', error.message);
-  //   }
-  // }
 
   private static readonly TIER_HIERARCHY: Record<string, number> = {
     'free': 0,
