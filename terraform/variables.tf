@@ -19,6 +19,12 @@ variable "github_owner" {
   default     = "jduffey1990"
 }
 
+variable "api_domain_name" {
+  description = "Stable client-facing hostname for the API (DNS hosted at Cloudflare)"
+  type        = string
+  default     = "api.tobprayer.app"
+}
+
 variable "github_branch" {
   description = "GitHub branch to deploy from"
   type        = string
@@ -82,12 +88,6 @@ variable "node_env" {
   description = "Describing environment in some places conditionally in code"
   type        = string
   default     = "production"
-}
-
-variable "github_token" {
-  description = "GitHub personal access token for CodePipeline"
-  type        = string
-  sensitive   = true
 }
 
 variable "database_url" {

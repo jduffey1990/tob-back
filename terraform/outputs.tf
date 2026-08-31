@@ -35,3 +35,23 @@ output "s3_pipeline_bucket" {
   description = "S3 bucket for pipeline artifacts"
   value       = aws_s3_bucket.pipeline_artifacts.bucket
 }
+
+output "codestar_connection_arn" {
+  description = "ARN of the GitHub CodeStar connection"
+  value       = aws_codestarconnections_connection.github.arn
+}
+
+output "codestar_connection_status" {
+  description = "PENDING until authorized once in the console, then AVAILABLE"
+  value       = aws_codestarconnections_connection.github.connection_status
+}
+
+output "acm_certificate_arn" {
+  description = "ARN of the api.tobprayer.app certificate; feed to `aws acm describe-certificate` to read the validation record"
+  value       = aws_acm_certificate.api.arn
+}
+
+output "api_custom_domain_target" {
+  description = "CNAME target for the api record in Cloudflare (create it DNS-only, grey cloud)"
+  value       = aws_apigatewayv2_domain_name.api.domain_name_configuration[0].target_domain_name
+}

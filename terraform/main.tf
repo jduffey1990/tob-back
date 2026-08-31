@@ -408,6 +408,28 @@ resource "aws_s3_bucket_public_access_block" "pipeline_artifacts" {
 }
 
 # ============================================
+# CODESTAR CONNECTION - GITHUB (v2)
+# ============================================
+
+# Replaces the deprecated GitHub v1 OAuth-token source action. Authenticates via
+# the AWS Connector GitHub App rather than a PAT, so nothing expires out from
+# under the pipeline, and pushes arrive by webhook instead of polling.
+#
+# Terraform creates this in PENDING status and it CANNOT be authorized from
+# code -- a human must complete the handshake once:
+#   Console -> Developer Tools -> Settings -> Connections
+#   -> towerofbabble-github -> "Update pending connection" -> install/authorize
+# Until then the Source stage fails with a connection error.
+resource "aws_codestarconnections_connection" "github" {
+  name          = "${var.service_name}-github"
+  provider_type = "GitHub"
+
+  tags = merge(local.common_tags, {
+    Type = "codestar-connection"
+  })
+}
+
+# ============================================
 # CODEPIPELINE
 # ============================================
 
@@ -426,16 +448,17 @@ resource "aws_codepipeline" "main" {
     action {
       name             = "Source"
       category         = "Source"
-      owner            = "ThirdParty"
-      provider         = "GitHub"
+      owner            = "AWS"
+      provider         = "CodeStarSourceConnection"
       version          = "1"
       output_artifacts = ["source_output"]
-      
+
       configuration = {
-        Owner      = var.github_owner
-        Repo       = var.github_repo
-        Branch     = var.github_branch
-        OAuthToken = var.github_token
+        ConnectionArn        = aws_codestarconnections_connection.github.arn
+        FullRepositoryId     = "${var.github_owner}/${var.github_repo}"
+        BranchName           = var.github_branch
+        DetectChanges        = "true"
+        OutputArtifactFormat = "CODE_ZIP"
       }
     }
   }
