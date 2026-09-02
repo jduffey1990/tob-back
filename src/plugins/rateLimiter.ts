@@ -1,22 +1,27 @@
 // src/plugins/rateLimiter.ts
-// Hapi plugin for rate limiting the unauthenticated surface.
+// Hapi plugin for rate limiting the unauthenticated surface, plus a small set
+// of per-user buckets for authenticated routes whose cost isn't already
+// covered by a tier quota (e.g. an upload with no TTS credit to gate it).
 //
-// Why this exists: a native iOS client cannot be authenticated, only its user
-// can. CORS never applied (it is browser-enforced, and there is no browser),
-// and any secret shipped in the binary is extractable. So the routes that run
-// before a JWT exists -- login, signup, activation, password reset -- are open
-// to anyone with curl. Everything behind `auth: 'jwt'` is already covered by
-// per-user tier quotas; this closes the gap in front of them.
+// Why the unauthenticated part exists: a native iOS client cannot be
+// authenticated, only its user can. CORS never applied (it is
+// browser-enforced, and there is no browser), and any secret shipped in the
+// binary is extractable. So the routes that run before a JWT exists -- login,
+// signup, activation, password reset -- are open to anyone with curl. Most
+// routes behind `auth: 'jwt'` are already covered by per-user tier quotas;
+// this closes the gap in front of them, and backstops the rare one that isn't.
 //
 // Fixed window, not sliding: an attacker can burst 2x the limit across a window
 // boundary. That is fine here -- the goal is to bound automated abuse, not to
 // meter precisely, and a fixed window costs one Redis round trip instead of a
 // sorted-set read/write pair on every request.
 //
-// Two hooks:
+// Three hooks:
 //   onPreAuth     -- runs after the payload is parsed but before authentication
 //                    and before Joi validation, so a rejection costs no DB or
 //                    SES work.
+//   onPostAuth    -- runs after authentication, so request.auth.credentials.id
+//                    exists to key a per-user bucket on.
 //   onPreResponse -- settles failure-counting rules once the status is known.
 
 import { Plugin, Request, ResponseObject, ResponseToolkit, Server } from '@hapi/hapi';
@@ -60,7 +65,28 @@ interface RateLimitRule {
 
 interface KeyedBucket extends Bucket {
   key: string;
-  kind: 'ip' | 'email';
+  kind: 'ip' | 'email' | 'user';
+}
+
+/**
+ * Per-user rule, settled onPostAuth instead of onPreAuth -- unlike the IP/email
+ * rules above, this one needs an authenticated user id to key on, which does
+ * not exist until auth has run. 'all' semantics only: the request itself is
+ * the cost (an S3 write), so every attempt counts, success or not.
+ */
+interface UserRateLimitRule {
+  method: string;
+  routePath: string;
+  user: Bucket;
+}
+
+function findUserRule(request: Request): UserRateLimitRule | undefined {
+  const method = request.method.toLowerCase();
+  const routePath = request.route?.path;
+
+  return USER_RULES.find(
+    rule => rule.method.toLowerCase() === method && rule.routePath === routePath
+  );
 }
 
 declare module '@hapi/hapi' {
@@ -113,6 +139,16 @@ const RULES: RateLimitRule[] = [
     ip: { limit: 5, windowSeconds: HOUR },
     email: { limit: 3, windowSeconds: HOUR },
     count: 'all',
+  },
+];
+
+const USER_RULES: UserRateLimitRule[] = [
+  {
+    // My Voice recording upload. ~20/hour is well above any real re-record
+    // cadence and bounds S3 storage abuse from a compromised/scripted client.
+    method: 'post',
+    routePath: '/prayers/{id}/recording',
+    user: { limit: 20, windowSeconds: HOUR },
   },
 ];
 
@@ -286,6 +322,39 @@ const rateLimiterPlugin: Plugin<{}> = {
       // whether the attempt actually failed.
       if (rule.count === 'failures') {
         request.app.rateLimitBuckets = buckets;
+      }
+
+      return h.continue;
+    });
+
+    // ─── onPostAuth: per-user buckets, keyed on the authenticated user id ───
+    server.ext('onPostAuth', async (request: Request, h: ResponseToolkit) => {
+      const rule = findUserRule(request);
+      if (!rule) return h.continue;
+
+      const credentials = request.auth.credentials as { id?: string } | undefined;
+      const userId = credentials?.id;
+      if (!userId) return h.continue; // route requires auth: 'jwt' -- should not happen
+
+      const bucket: KeyedBucket = {
+        key: `ratelimit:user:${rule.routePath}:${userId}`,
+        kind: 'user',
+        ...rule.user,
+      };
+
+      const count = await failOpen(request, 0, () =>
+        RedisService.incrementRateLimit(bucket.key, bucket.windowSeconds)
+      );
+
+      if (count > bucket.limit) {
+        if (count === bucket.limit + 1) {
+          logBreach(request, bucket, clientIp(request));
+        }
+
+        const retryAfter = await failOpen(request, bucket.windowSeconds, () =>
+          retryAfterFor(bucket)
+        );
+        throw tooManyRequests(retryAfter);
       }
 
       return h.continue;
