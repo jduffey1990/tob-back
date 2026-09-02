@@ -230,6 +230,82 @@ class RedisService {
             }
         });
     }
+    // ==============================================
+    // RATE LIMITING
+    // ==============================================
+    /**
+     * Fixed-window counter. Increments the key and, on the first hit of a new
+     * window, arms the TTL so the window expires on its own.
+     *
+     * INCR/EXPIRE are identical across ioredis and the Upstash HTTP SDK, so this
+     * needs no isProduction branch. Not atomic across the two commands: a crash
+     * between them would leave a key with no TTL. That would pin one caller at
+     * their cap forever, so the caller treats a missing TTL as a stale window and
+     * re-arms it rather than trusting the count.
+     */
+    static incrementRateLimit(key, windowSeconds) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            const count = yield this.client.incr(key);
+            if (count === 1) {
+                yield this.client.expire(key, windowSeconds);
+            }
+            return count;
+        });
+    }
+    /**
+     * Current count without touching it. Used by failure-counting rules, which
+     * must not charge a caller for merely arriving -- only for failing.
+     */
+    static getRateLimitCount(key) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            const raw = yield this.client.get(key);
+            if (raw === null || raw === undefined)
+                return 0;
+            const count = parseInt(String(raw), 10);
+            return Number.isNaN(count) ? 0 : count;
+        });
+    }
+    /**
+     * Drop a bucket. A successful login clears its own failure count, so a user
+     * who mistypes a few times and then gets in starts clean.
+     */
+    static resetRateLimit(key) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            yield this.client.del(key);
+        });
+    }
+    /**
+     * (Re)arm the window on an existing key. Only needed to repair a key that
+     * lost its TTL between the INCR and EXPIRE in incrementRateLimit.
+     */
+    static armRateLimitWindow(key, windowSeconds) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            yield this.client.expire(key, windowSeconds);
+        });
+    }
+    /**
+     * Seconds left in the current window. Only called on the throttled path, to
+     * fill in Retry-After -- keeping the common (under-limit) path to one round
+     * trip, which matters when every Upstash call is an HTTPS request.
+     *
+     * Returns -1 for "no TTL set" and -2 for "key is gone", passed through from
+     * Redis so the caller can tell a stale window from an expired one.
+     */
+    static getRateLimitTTL(key) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.initialized)
+                this.init();
+            return yield this.client.ttl(key);
+        });
+    }
     /**
      * Get all keys matching pattern
      * WARNING: Use carefully in production!

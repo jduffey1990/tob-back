@@ -78,6 +78,12 @@ variable "lambda_memory" {
   default     = 512
 }
 
+variable "tts_worker_timeout" {
+  description = "TTS worker Lambda timeout (seconds). The Redis build lock TTL and the SQS visibility timeout are both derived from this -- see api note in audioService.generateAndStore."
+  type        = number
+  default     = 120
+}
+
 variable "lambda_timeout" {
   description = "Lambda timeout in seconds"
   type        = number

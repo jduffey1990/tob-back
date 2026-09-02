@@ -14,6 +14,15 @@ const tokenService_1 = require("../controllers/tokenService");
 const email_service_1 = require("../controllers/email.service");
 const userService_1 = require("../controllers/userService");
 const emailService = new email_service_1.EmailService();
+// One response for every outcome that depends on account state: unknown email,
+// already active, token already outstanding, mail actually sent. Anything that
+// distinguishes them is an oracle -- an unauthenticated caller could walk a list
+// and learn which addresses have accounts and whether they are activated.
+// Malformed input still 400s, since that reveals nothing about the database.
+const ACTIVATION_ACCEPTED = {
+    success: true,
+    message: 'If an account exists with this email and still needs activation, an activation link has been sent.',
+};
 exports.tokenRoutes = [
     {
         method: 'POST',
@@ -33,29 +42,23 @@ exports.tokenRoutes = [
                 // Find user by email
                 const userData = yield userService_1.UserService.findUserByEmail(email);
                 if (!userData) {
-                    return h.response({ error: 'User not found' }).code(404);
+                    return h.response(ACTIVATION_ACCEPTED).code(200);
                 }
-                // Check if user is already activated
+                // Already activated -- nothing to send, but say so indistinguishably.
                 if (userData.status === 'active') {
-                    return h.response({
-                        error: 'Account is already activated'
-                    }).code(400);
+                    return h.response(ACTIVATION_ACCEPTED).code(200);
                 }
-                // Check if there's already an active token (prevent spam)
+                // A token is already outstanding. This is the guard that bounds
+                // mail volume per account; the rate limiter bounds it per IP.
                 const hasActiveToken = yield tokenService_1.activationTokenService.hasActiveToken(userData.id);
                 if (hasActiveToken) {
-                    return h.response({
-                        error: 'An activation email was already sent. Please check your inbox or wait before requesting another.'
-                    }).code(429); // Too Many Requests
+                    return h.response(ACTIVATION_ACCEPTED).code(200);
                 }
                 // Generate activation token
                 const token = yield tokenService_1.activationTokenService.createActivationToken(userData.id, userData.email);
                 // Send the activation email
                 yield emailService.sendActivationEmail(userData.email, token);
-                return h.response({
-                    success: true,
-                    message: 'Activation email sent successfully',
-                }).code(200);
+                return h.response(ACTIVATION_ACCEPTED).code(200);
             }
             catch (error) {
                 console.error('Send activation email error:', error);
@@ -116,26 +119,18 @@ exports.tokenRoutes = [
                 // Find user by email
                 const userData = yield userService_1.UserService.findUserByEmail(email);
                 if (!userData) {
-                    // Don't reveal if user exists - security best practice
-                    return h.response({
-                        success: true,
-                        message: 'If an account exists with this email, a new activation link has been sent.',
-                    }).code(200);
+                    return h.response(ACTIVATION_ACCEPTED).code(200);
                 }
-                // Check if already activated
+                // Already activated -- the 400 that used to live here told an
+                // unauthenticated caller the address was real.
                 if (userData.status === 'active') {
-                    return h.response({
-                        error: 'Account is already activated'
-                    }).code(400);
+                    return h.response(ACTIVATION_ACCEPTED).code(200);
                 }
                 // Create new token (this will delete old ones)
                 const token = yield tokenService_1.activationTokenService.resendActivationToken(userData.id, userData.email);
                 // Send the activation email
                 yield emailService.sendActivationEmail(userData.email, token);
-                return h.response({
-                    success: true,
-                    message: 'A new activation email has been sent',
-                }).code(200);
+                return h.response(ACTIVATION_ACCEPTED).code(200);
             }
             catch (error) {
                 console.error('Resend activation email error:', error);

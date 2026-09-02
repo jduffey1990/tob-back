@@ -1,6 +1,9 @@
 // src/controllers/statsService.ts
 import { EmailService } from './email.service';
 import { PostgresService } from './postgres.service';
+import { SQSClient, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
+
+const sqsClient = new SQSClient({});
 
 /**
  * Daily stats digest service
@@ -54,6 +57,21 @@ interface AudioStats {
     zombies: number;         // success IS NULL - started but never resolved
   };
   failuresByProvider: Record<string, number>;  // provider -> failure count last 24h
+
+  // --- permanent loss ---
+  // Depth of the TTS dead-letter queue: generations that burned all 3 SQS
+  // attempts. Distinct from `failed` above, which counts individual attempts —
+  // a failure that a later retry rescued still shows there. null means the
+  // queue check itself failed; the digest must still send.
+  deadLetterQueueDepth: number | null;
+  // Distinct error reasons in the last 24h, worst first. This is why the digest
+  // never needs to scrape CloudWatch Logs: generateAndStore already writes the
+  // structured cause to tts_generations.
+  failureReasonsLast24h: Array<{
+    errorCode: string;
+    errorMessage: string;
+    count: number;
+  }>;
   costLast24h: number;                         // sum of estimated_cost_usd
   performance: Array<{                         // one row per provider
     provider: string;
@@ -454,6 +472,39 @@ export class StatsService {
        LIMIT 1`
     );
 
+    // Grouped by code AND message: one provider outage produces many rows with
+    // an identical message, and collapsing them turns a wall of failures into
+    // a single actionable line.
+    const failureReasonsRes = await db.query<{
+      error_code: string | null; error_message: string | null; count: string;
+    }>(
+      `SELECT error_code, error_message, COUNT(*) AS count
+       FROM tts_generations
+       WHERE success = false
+         AND created_at >= NOW() - INTERVAL '24 hours'
+       GROUP BY error_code, error_message
+       ORDER BY COUNT(*) DESC
+       LIMIT 5`
+    );
+
+    // Never let a queue hiccup take down the whole digest — the database
+    // numbers above are the more important half of this email.
+    let dlqDepth: number | null = null;
+    try {
+      if (process.env.TTS_DLQ_URL) {
+        const attrs = await sqsClient.send(new GetQueueAttributesCommand({
+          QueueUrl: process.env.TTS_DLQ_URL,
+          AttributeNames: ['ApproximateNumberOfMessages'],
+        }));
+        dlqDepth = parseInt(attrs.Attributes?.ApproximateNumberOfMessages ?? '0');
+      }
+    } catch (error: any) {
+      console.error(JSON.stringify({
+        level: 'error', type: 'dlq_depth_check_failed',
+        message: error?.message ?? String(error), timestamp: new Date().toISOString(),
+      }));
+    }
+
     const outcomes = outcomesRes.rows[0];
     const slowest = slowestRes.rows[0] ?? null;
 
@@ -475,6 +526,12 @@ export class StatsService {
       failuresByProvider: Object.fromEntries(
         failuresByProviderRes.rows.map(r => [r.provider, parseInt(r.count)])
       ),
+      deadLetterQueueDepth: dlqDepth,
+      failureReasonsLast24h: failureReasonsRes.rows.map(r => ({
+        errorCode: r.error_code ?? 'UNKNOWN_ERROR',
+        errorMessage: r.error_message ?? '(no message recorded)',
+        count: parseInt(r.count),
+      })),
       costLast24h: parseFloat(costRes.rows[0].total_cost),
       performance: performanceRes.rows.map(r => ({
         provider: r.provider,

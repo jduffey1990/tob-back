@@ -62,7 +62,39 @@ export class AudioService {
       };
     }
     
-    // 3️⃣ Doesn't exist and not building
+    // 3️⃣ Nothing playable and nothing building. Distinguish "never tried" from
+    // "tried and gave up" — previously both reported MISSING, so a permanently
+    // failed prayer was indistinguishable from a fresh one and the app silently
+    // offered to generate it again with no hint that anything had gone wrong.
+    //
+    // `success IS NOT TRUE` catches both outcomes worth reporting: an explicit
+    // failure (false, recorded by the catch in generateAndStore) and a zombie
+    // (null — the row was inserted but the invocation was hard-killed before it
+    // could resolve, so no catch ever ran).
+    const lastAttempt = await db.query<{
+      error_code: string | null;
+      success: boolean | null;
+      tts_started_at: Date | null;
+    }>(
+      `SELECT error_code, success, tts_started_at
+       FROM tts_generations
+       WHERE prayer_id = $1 AND voice_id = $2
+       ORDER BY tts_started_at DESC NULLS LAST
+       LIMIT 1`,
+      [prayerId, voiceId]
+    );
+
+    const attempt = lastAttempt.rows[0];
+    if (attempt && attempt.success !== true) {
+      return {
+        state: AudioState.FAILED,
+        // error_code is our own AppError class name, never raw provider text,
+        // so it is safe to hand to a client. error_message stays server-side.
+        errorCode: attempt.error_code ?? 'UNKNOWN_ERROR',
+        failedAt: attempt.tts_started_at?.toISOString()
+      };
+    }
+
     return {
       state: AudioState.MISSING
     };
@@ -241,7 +273,24 @@ export class AudioService {
     const provider = voice?.provider ?? 'unknown';
 
     // Acquire Redis lock (outside try so we don't clear a lock we never acquired)
-    const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, 600);
+    //
+    // TTL sits just past the worker's own Lambda ceiling: the finally below
+    // releases the lock on both success and failure, so the TTL only ever
+    // matters when the invocation is hard-killed at its timeout and finally
+    // never runs. A lock older than that ceiling can only be debris.
+    //
+    // It must also stay UNDER the queue's visibility timeout. The old value
+    // (600s) outlived all three SQS attempts, so a timed-out generation left a
+    // lock that made every retry fail instantly with ConflictError -- the
+    // retries were spent without a single real attempt, and the DLQ recorded
+    // the lock conflict instead of the actual error.
+    //
+    //   worker timeout (120s)  <=  lock TTL (150s)  <  visibility timeout (180s)
+    //
+    // All three derive from var.tts_worker_timeout in terraform so they cannot
+    // drift apart again; the fallback matches its default.
+    const lockTtlSeconds = Number(process.env.TTS_LOCK_TTL_SECONDS) || 150;
+    const lockAcquired = await redisService.markAsBuilding(prayerId, voiceId, lockTtlSeconds);
     if (!lockAcquired) {
       throw new ConflictError('Audio generation already in progress');
     }

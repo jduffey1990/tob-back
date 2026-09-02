@@ -54,15 +54,6 @@ function verifyCaptcha(token_1) {
     });
 }
 exports.userRoutes = [
-    // find all them hoes
-    {
-        method: 'GET',
-        path: '/users',
-        handler: (request, h) => {
-            return userService_1.UserService.findAllUsers();
-        },
-        options: { auth: false }
-    },
     // Simple health check
     {
         method: 'GET',
@@ -347,9 +338,13 @@ exports.userRoutes = [
         },
         handler: (request, h) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                // Optional: Add API key validation for security
+                // Fail closed. `apiKey !== process.env.CLEANUP_API_KEY` passes when both
+                // sides are undefined, so an unset env var would have opened this route
+                // to anyone. Terraform requires the variable today, but the check should
+                // not depend on that staying true.
+                const expectedKey = process.env.CLEANUP_API_KEY;
                 const apiKey = request.headers['x-api-key'];
-                if (apiKey !== process.env.CLEANUP_API_KEY) {
+                if (!expectedKey || typeof apiKey !== 'string' || apiKey !== expectedKey) {
                     return h.response({ error: 'Unauthorized' }).code(401);
                 }
                 const result = yield userService_1.UserService.cleanupOldDeletedUsers();

@@ -31,6 +31,12 @@ function mapRowToUserSafe(row: any): UserSafe {
 export class UserService {
   /**
    * Get all users (safe).
+   *
+   * Deliberately NOT exposed over HTTP. This was reachable at GET /users with
+   * auth: false, which handed every user's email and denomination to anyone
+   * who guessed the path. Kept for scripts and tests; if it ever needs a route
+   * again it needs an admin check, not just a JWT -- any signed-in user
+   * dumping the whole table is the same leak with extra steps.
    */
   public static async findAllUsers(): Promise<UserSafe[]> {
     const db = PostgresService.getInstance();

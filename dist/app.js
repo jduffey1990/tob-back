@@ -30,7 +30,6 @@ const loginRoutes_1 = require("./routes/loginRoutes");
 const passwordResetRoutes_1 = require("./routes/passwordResetRoutes");
 const prayerRoutes_1 = require("./routes/prayerRoutes");
 const prayOnItRoutes_1 = require("./routes/prayOnItRoutes");
-const redisRoutes_1 = require("./routes/redisRoutes");
 const tokenRoutes_1 = require("./routes/tokenRoutes");
 const ttsRoutes_1 = require("./routes/ttsRoutes");
 const userRoutes_1 = require("./routes/userRoutes");
@@ -40,6 +39,7 @@ const playlistRoutes_1 = require("./routes/playlistRoutes");
 const flockRoutes_1 = require("./routes/flockRoutes");
 const deviceRoutes_1 = require("./routes/deviceRoutes");
 const requestLogger_1 = __importDefault(require("./plugins/requestLogger"));
+const rateLimiter_1 = __importDefault(require("./plugins/rateLimiter"));
 dotenv_1.default.config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_LAMBDA = NODE_ENV === 'production' || !!process.env.LAMBDA_TASK_ROOT;
@@ -60,7 +60,6 @@ const allRoutes = asServerRoutes([
     ...prayerRoutes_1.prayerRoutes,
     ...prayOnItRoutes_1.prayOnItRoutes,
     ...ttsRoutes_1.ttsRoutes,
-    ...redisRoutes_1.redisRoutes,
     ...audioRoutes_1.audioRoutes,
     ...passwordResetRoutes_1.passwordResetRoutes,
     ...denominationRoutes_1.denominationRoutes,
@@ -105,6 +104,7 @@ function buildServer() {
         s3_service_1.S3Service.initialize();
         yield server.register(require('@hapi/jwt'));
         yield server.register(requestLogger_1.default);
+        yield server.register(rateLimiter_1.default);
         server.auth.strategy('jwt', 'jwt', {
             keys: jwtSecret,
             verify: { aud: false, iss: false, sub: false, maxAgeSec: 60 * 60 * 4 },

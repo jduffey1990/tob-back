@@ -8,6 +8,14 @@ import { UserService } from '../controllers/userService';
 
 const emailService = new EmailService();
 
+// One response for every outcome that depends on account state, so the route
+// cannot be used to test which addresses have accounts. Malformed input still
+// 400s -- that reveals nothing about the database.
+const RESET_ACCEPTED = {
+  success: true,
+  message: 'If an account exists with this email, a password reset link has been sent.',
+};
+
 export const passwordResetRoutes: ServerRoute[] = [
   // ===== REQUEST PASSWORD RESET =====
   {
@@ -20,28 +28,24 @@ export const passwordResetRoutes: ServerRoute[] = [
         // Find user by email
         const userData = await UserService.findUserByEmail(email);
 
-        // Security best practice: Don't reveal if user exists
-        // Always return success even if user not found
+        // Every account-state outcome returns the same 200 below. The unknown-user
+        // case was already handled this way; the inactive and already-sent cases
+        // were not, and each told an unauthenticated caller the address was real.
         if (!userData) {
-          return h.response({
-            success: true,
-            message: 'If an account exists with this email, a password reset link has been sent.',
-          }).code(200);
+          return h.response(RESET_ACCEPTED).code(200);
         }
 
-        // Check if user is inactive (hasn't activated account yet)
+        // Not activated yet -- a reset link would be useless, but saying so
+        // confirms the account exists.
         if (userData.status === 'inactive') {
-          return h.response({ 
-            error: 'Please activate your account first before resetting your password.' 
-          }).code(400);
+          return h.response(RESET_ACCEPTED).code(200);
         }
 
-        // Check if there's already an active reset token (prevent spam)
+        // A reset token is already outstanding. This is what bounds mail volume
+        // per account; the rate limiter bounds it per IP.
         const hasActiveToken = await passwordResetTokenService.hasActiveToken(userData.id);
         if (hasActiveToken) {
-          return h.response({ 
-            error: 'A password reset email was already sent. Please check your inbox or wait before requesting another.' 
-          }).code(429); // Too Many Requests
+          return h.response(RESET_ACCEPTED).code(200);
         }
 
         // Generate password reset token
@@ -53,10 +57,7 @@ export const passwordResetRoutes: ServerRoute[] = [
         // Send the password reset email
         await emailService.sendPasswordResetEmail(userData.email, token);
 
-        return h.response({
-          success: true,
-          message: 'If an account exists with this email, a password reset link has been sent.',
-        }).code(200);
+        return h.response(RESET_ACCEPTED).code(200);
       } catch (error: any) {
         console.error('Request password reset error:', error);
         return h.response({ 

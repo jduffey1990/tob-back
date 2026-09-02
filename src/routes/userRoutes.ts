@@ -56,16 +56,6 @@ async function verifyCaptcha(token: string | null, minScore = 0.5): Promise<{ su
 
 
 export const userRoutes : ServerRoute[] = [
-  // find all them hoes
-  { 
-    method: 'GET', 
-    path: '/users', 
-    handler: (request: Request, h: ResponseToolkit) => { 
-      return UserService.findAllUsers() 
-    }, 
-    options: { auth: false  } 
-  },
-
   // Simple health check
   {
     method: 'GET',
@@ -389,9 +379,13 @@ export const userRoutes : ServerRoute[] = [
     },
     handler: async (request: any, h: any) => {
       try {
-        // Optional: Add API key validation for security
+        // Fail closed. `apiKey !== process.env.CLEANUP_API_KEY` passes when both
+        // sides are undefined, so an unset env var would have opened this route
+        // to anyone. Terraform requires the variable today, but the check should
+        // not depend on that staying true.
+        const expectedKey = process.env.CLEANUP_API_KEY;
         const apiKey = request.headers['x-api-key'];
-        if (apiKey !== process.env.CLEANUP_API_KEY) {
+        if (!expectedKey || typeof apiKey !== 'string' || apiKey !== expectedKey) {
           return h.response({ error: 'Unauthorized' }).code(401);
         }
         

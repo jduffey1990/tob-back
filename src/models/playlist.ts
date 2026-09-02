@@ -87,7 +87,10 @@ export interface PlaylistPrayerDetail {
   prayerTitle: string;
   prayerText: string;
   position: number;
-  audioState: 'READY' | 'BUILDING' | 'MISSING';
+  // Mirrors AudioState in audioItem.ts — kept as a literal union so playlist
+  // rows stay JSON-shaped, but it must include every state getAudioState can
+  // return or playlists silently narrow a real failure into something else.
+  audioState: 'READY' | 'BUILDING' | 'MISSING' | 'FAILED';
   audioUrl?: string;    // only present when audioState === 'READY'
 }
 

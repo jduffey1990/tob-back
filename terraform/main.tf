@@ -36,7 +36,14 @@ resource "aws_lambda_function" "main" {
   
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
-  
+
+  # Blast-radius cap. Unbounded, a burst against the unauthenticated routes
+  # scales Lambda out until the account limit, and the bill follows. 50 is far
+  # above real traffic; raise it before a launch push rather than after.
+  # Note this RESERVES capacity from the account pool -- requests past it get
+  # 429 rather than queueing. The TTS worker keeps its own separate cap.
+  reserved_concurrent_executions = 50
+
   environment {
     variables = {
       # Service identification
@@ -72,6 +79,11 @@ resource "aws_lambda_function" "main" {
 
       #SQS
       TTS_QUEUE_URL = aws_sqs_queue.tts_generation.url
+      # Read-only, for the daily digest: DLQ depth is the "we exhausted every
+      # retry and gave up" signal. tts_generations records that an attempt
+      # failed, but a failure followed by a successful retry looks identical in
+      # aggregate -- only the DLQ distinguishes permanent loss.
+      TTS_DLQ_URL   = aws_sqs_queue.tts_dead_letter.url
 
       # Data Cleanup Security
       CLEANUP_API_KEY = var.cleanup_api_key
@@ -107,7 +119,10 @@ resource "aws_sqs_queue" "tts_dead_letter" {
 
 resource "aws_sqs_queue" "tts_generation" {
   name                       = "${var.service_name}-tts-generation"
-  visibility_timeout_seconds = 180  # 3x your Lambda timeout (120s)
+  # Must exceed the lock TTL (timeout + 30) so a retry never lands while a stale
+  # lock is still held -- that burns an attempt on a spurious ConflictError.
+  # Ordering: worker timeout <= lock TTL < visibility timeout.
+  visibility_timeout_seconds = var.tts_worker_timeout + 60
   message_retention_seconds  = 3600 # 1 hour - stale generations are useless
 
   redrive_policy = jsonencode({
@@ -133,10 +148,15 @@ resource "aws_lambda_function" "tts_worker" {
   source_code_hash = filebase64sha256("${path.module}/placeholder.zip")
 
   memory_size = 512
-  timeout     = 120  # 2 minutes for TTS generation
+  timeout     = var.tts_worker_timeout
 
   environment {
-    variables = aws_lambda_function.main.environment[0].variables
+    # Lock TTL sits just past the worker's own ceiling: a lock older than that
+    # can only be debris from a hard-killed invocation. Derived, not hardcoded,
+    # so raising the timeout can never strand it again.
+    variables = merge(aws_lambda_function.main.environment[0].variables, {
+      TTS_LOCK_TTL_SECONDS = tostring(var.tts_worker_timeout + 30)
+    })
   }
 
   tags = merge(local.common_tags, {
@@ -183,7 +203,13 @@ resource "aws_iam_policy" "lambda_sqs_receive" {
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes"
       ]
-      Resource = aws_sqs_queue.tts_generation.arn
+      # DLQ included so the digest can read its depth. The worker never receives
+      # from the DLQ -- nothing redrives automatically -- but GetQueueAttributes
+      # is scoped per-queue, so it has to be named explicitly.
+      Resource = [
+        aws_sqs_queue.tts_generation.arn,
+        aws_sqs_queue.tts_dead_letter.arn
+      ]
     }]
   })
 }

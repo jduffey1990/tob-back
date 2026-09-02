@@ -524,6 +524,14 @@ class EmailService {
       Est. Cost (24h): $${audio.costLast24h.toFixed(4)}
       ${audio.performance.map((p) => { var _a, _b, _c; return `  ${p.provider}: avg ${(_a = p.avgTtsMs) !== null && _a !== void 0 ? _a : '?'}ms TTS, p95 ${(_b = p.p95TtsMs) !== null && _b !== void 0 ? _b : '?'}ms, avg ${(_c = p.avgS3Ms) !== null && _c !== void 0 ? _c : '?'}ms S3`; }).join('\n')}
       ${audio.slowestGenerationLast24h ? `Slowest: ${audio.slowestGenerationLast24h.totalMs}ms on ${audio.slowestGenerationLast24h.provider} (${audio.slowestGenerationLast24h.characterCount} chars)${audio.slowestGenerationLast24h.errorCode ? ` [${audio.slowestGenerationLast24h.errorCode}]` : ''}` : ''}
+      ${audio.deadLetterQueueDepth === null
+            ? 'Dead Letter Queue: ⚠️ could not be read (see dlq_depth_check_failed in logs)'
+            : audio.deadLetterQueueDepth > 0
+                ? `Dead Letter Queue: 🚨 ${audio.deadLetterQueueDepth} prayer(s) gave up after 3 attempts — these are permanently silent until redriven`
+                : 'Dead Letter Queue: 0 ✅'}
+      ${audio.failureReasonsLast24h.length > 0
+            ? `Failure reasons (24h):\n${audio.failureReasonsLast24h.map((f) => `        ${f.count}× [${f.errorCode}] ${f.errorMessage}`).join('\n')}`
+            : ''}
 
       📋 MISC
       Denominations: ${Object.entries(misc.denominationBreakdown).map(([k, v]) => `${k}: ${v}`).join(', ')}

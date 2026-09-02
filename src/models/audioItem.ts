@@ -40,17 +40,25 @@ export interface AudioFileRow {
 export enum AudioState {
   BUILDING = 'BUILDING',   // Currently generating
   READY = 'READY',         // Available for playback
-  MISSING = 'MISSING'      // Not generated yet
+  MISSING = 'MISSING',     // Never attempted for this (prayer, voice)
+  FAILED = 'FAILED'        // Last attempt gave up; nothing playable exists
 }
 
 /**
  * Response for audio state check endpoint
+ *
+ * FAILED is additive and safe for old clients: iOS decodes `state` as a plain
+ * String and its switch falls through to `.missing` on anything unrecognised,
+ * which is exactly how a failed generation already presented. Clients that know
+ * about FAILED can show a real error and a retry affordance instead.
  */
 export interface AudioStateResponse {
   state: AudioState;
   audioUrl?: string;         // Only present when state is READY
   fileSize?: number;         // Only present when state is READY
   duration?: number;         // Only present when state is READY
+  errorCode?: string;        // Only present when state is FAILED
+  failedAt?: string;         // Only present when state is FAILED (ISO 8601)
 }
 
 /**

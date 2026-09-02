@@ -18,7 +18,6 @@ import { homeRoutes, loginRoutes } from './routes/loginRoutes'
 import { passwordResetRoutes } from './routes/passwordResetRoutes'
 import { prayerRoutes } from './routes/prayerRoutes'
 import { prayOnItRoutes } from './routes/prayOnItRoutes'
-import { redisRoutes } from './routes/redisRoutes'
 import { tokenRoutes } from './routes/tokenRoutes'
 import { ttsRoutes } from './routes/ttsRoutes'
 import { userRoutes } from './routes/userRoutes'
@@ -28,6 +27,7 @@ import { playlistRoutes } from './routes/playlistRoutes'
 import { flockRoutes } from './routes/flockRoutes'
 import { deviceRoutes } from './routes/deviceRoutes'
 import requestLoggerPlugin from './plugins/requestLogger'
+import rateLimiterPlugin from './plugins/rateLimiter'
 
 dotenv.config()
 
@@ -54,7 +54,6 @@ const allRoutes = asServerRoutes([
   ...prayerRoutes as unknown as ServerRoute[],
   ...prayOnItRoutes as unknown as ServerRoute[],
   ...ttsRoutes as unknown as ServerRoute[],
-  ...redisRoutes as unknown as ServerRoute[],
   ...audioRoutes as unknown as ServerRoute[],
   ...passwordResetRoutes as unknown as ServerRoute[],
   ...denominationRoutes as unknown as ServerRoute[],
@@ -103,6 +102,7 @@ async function buildServer() {
 
   await server.register(require('@hapi/jwt'))
   await server.register(requestLoggerPlugin)
+  await server.register(rateLimiterPlugin)
 
   server.auth.strategy('jwt', 'jwt', {
     keys: jwtSecret,
