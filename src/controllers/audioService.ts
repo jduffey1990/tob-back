@@ -224,6 +224,43 @@ export class AudioService {
   }
 
   /**
+   * Store a user's own voice recording as a prayer's audio — same S3 object
+   * shape and audio_files row a TTS file would get, so playback is identical.
+   * Re-recording overwrites the same key, so the stored URL is versioned:
+   * AVPlayer/URLCache key on the URL, and without this a second take is
+   * invisible to anyone who already played the first.
+   *
+   * @param prayerId - Prayer UUID
+   * @param voiceId - The user-recording sentinel voice ID
+   * @param audioBuffer - M4A/AAC audio data as Buffer
+   * @returns The versioned playback URL
+   */
+  public static async saveUserRecording(
+    prayerId: string,
+    voiceId: string,
+    audioBuffer: Buffer
+  ): Promise<{ audioUrl: string }> {
+    const { s3Key, s3Url } = await S3Service.uploadAudio(
+      prayerId, voiceId, audioBuffer,
+      undefined,
+      { ext: 'm4a', contentType: 'audio/mp4', cacheControl: null }
+    );
+
+    const versionedUrl = `${s3Url}?v=${Date.now()}`;
+
+    await AudioService.saveAudioFile({
+      prayerId, voiceId,
+      s3Bucket: S3Service.getBucketName(),
+      s3Key,
+      s3Url: versionedUrl,
+      fileSizeBytes: audioBuffer.length,
+      provider: 'user',
+    });
+
+    return { audioUrl: versionedUrl };
+  }
+
+  /**
    * Delete all audio files for a prayer (when prayer is deleted)
    * 
    * @param prayerId - Prayer UUID

@@ -8,6 +8,10 @@ import { PrayerService } from '../controllers/prayerService';
 import { TTSService } from '../controllers/ttsService';
 import type { UserSafe } from '../models/user';
 
+// Sentinel voice for a prayer recorded in the user's own voice. Deliberately
+// NOT a row in the `voices` table — see llm_history/claude_md_my_voice_2026-09-02.md.
+export const USER_RECORDING_VOICE_ID = 'user-recording';
+
 export const audioRoutes: ServerRoute[] = [
   
   // ============================================
@@ -212,6 +216,22 @@ export const audioRoutes: ServerRoute[] = [
           }).code(403);
         }
 
+        // My Voice has no `voices` row — getVoiceById would 400 it below.
+        // Repin unconditionally and report whether a recording already
+        // exists (READY) or the client needs to open the recorder (MISSING).
+        if (voiceId === USER_RECORDING_VOICE_ID) {
+          await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId });
+          const currentState = await AudioService.getAudioState(prayerId, voiceId);
+          const audioState = currentState.state === 'READY' ? 'READY' : 'MISSING';
+
+          return h.response({
+            voiceId,
+            audioState,
+            ...(audioState === 'READY' ? { audioUrl: currentState.audioUrl } : {}),
+            trialCreditConsumed: false
+          }).code(200);
+        }
+
         const voice = await TTSService.getVoiceById(voiceId);
         if (!voice) {
           return h.response({
@@ -321,6 +341,78 @@ export const audioRoutes: ServerRoute[] = [
       },
       description: 'Repin a personal prayer\'s playback voice',
       notes: 'Cached voices repin instantly and free; uncached server voices run the TTS pathway (tier gate + trial credit). Flock prayers are rejected.',
+      tags: ['api', 'audio', 'prayers']
+    }
+  },
+
+  // ============================================
+  // POST /prayers/{id}/recording - Upload a user's own voice recording
+  // ============================================
+  {
+    method: 'POST',
+    path: '/prayers/{id}/recording',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id: prayerId } = request.params;
+
+        const prayer = await AudioService.getPrayerForUser(prayerId, authUser.id);
+        if (!prayer) {
+          return h.response({
+            error: 'Prayer not found'
+          }).code(404);
+        }
+
+        const audioBuffer = request.payload as Buffer;
+
+        // Sniff the ftyp box rather than trusting the declared Content-Type —
+        // refuse anything that isn't M4A/AAC before it reaches S3.
+        const isM4A = audioBuffer.length >= 8 && audioBuffer.toString('ascii', 4, 8) === 'ftyp';
+        if (!isM4A) {
+          return h.response({
+            error: 'Unsupported audio format',
+            message: 'Expected an M4A/AAC recording'
+          }).code(415);
+        }
+
+        const { audioUrl } = await AudioService.saveUserRecording(
+          prayerId, USER_RECORDING_VOICE_ID, audioBuffer
+        );
+
+        // Pin regardless of the prayer's current voice — covers both a fresh
+        // My Voice creation and a re-record after the prayer had drifted to
+        // another voice.
+        await PrayerService.updatePrayer(prayerId, authUser.id, { voiceId: USER_RECORDING_VOICE_ID });
+
+        return h.response({
+          state: 'READY',
+          audioUrl
+        }).code(200);
+
+      } catch (error: any) {
+        console.error('❌ [audioRoutes] Upload recording error:', error);
+        return h.response({
+          error: 'Internal server error',
+          message: error.message
+        }).code(500);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      payload: {
+        parse: false,          // hand the handler a raw Buffer
+        output: 'data',
+        allow: 'audio/mp4',    // M4A/AAC, not audio/mpeg
+        maxBytes: 4_500_000    // must equal the client's maxUploadBytes constant
+      },
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Upload a user-recorded prayer (M4A/AAC) as its audio',
+      notes: 'Pins the prayer to the My Voice sentinel. No TTS, no voices row, upserts on re-record.',
       tags: ['api', 'audio', 'prayers']
     }
   }

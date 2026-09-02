@@ -51,19 +51,22 @@ export class S3Service {
 
   /**
    * Generate S3 key (path) for an audio file
-   * Format: audio/{prayerId}/{voiceId}.mp3
+   * Format: audio/{prayerId}/{voiceId}.{ext}
    */
-  public static generateKey(prayerId: string, voiceId: string): string {
-    return `audio/${prayerId}/${voiceId}.mp3`;
+  public static generateKey(prayerId: string, voiceId: string, ext: string = 'mp3'): string {
+    return `audio/${prayerId}/${voiceId}.${ext}`;
   }
 
   /**
    * Upload audio file to S3
-   * 
+   *
    * @param prayerId - Prayer UUID
    * @param voiceId - Voice identifier
-   * @param audioBuffer - MP3 audio data as Buffer
+   * @param audioBuffer - Audio data as Buffer
    * @param metadata - Optional metadata (e.g., duration, provider)
+   * @param options - ext/contentType default to mp3/audio-mpeg (TTS output);
+   *   pass cacheControl: null to omit the header entirely (user recordings,
+   *   which overwrite their key on re-record and must not be cached under it).
    * @returns S3 key and public URL
    */
   public static async uploadAudio(
@@ -74,11 +77,24 @@ export class S3Service {
       duration?: number;
       provider?: string;
       characterCount?: number;
+    },
+    options?: {
+      ext?: string;
+      contentType?: string;
+      cacheControl?: string | null;
     }
   ): Promise<{ s3Key: string; s3Url: string }> {
     S3Service.ensureInitialized();
 
-    const key = S3Service.generateKey(prayerId, voiceId);
+    const ext = options?.ext ?? 'mp3';
+    const contentType = options?.contentType ?? 'audio/mpeg';
+    // 1 year - TTS audio is immutable at its key. undefined here (the default)
+    // preserves that; pass null explicitly to omit the header.
+    const cacheControl = options?.cacheControl === undefined
+      ? 'max-age=31536000'
+      : options.cacheControl;
+
+    const key = S3Service.generateKey(prayerId, voiceId, ext);
 
     // Prepare metadata for S3
     const s3Metadata: Record<string, string> = {
@@ -100,10 +116,9 @@ export class S3Service {
       Bucket: S3Service.bucket,
       Key: key,
       Body: audioBuffer,
-      ContentType: 'audio/mpeg',
+      ContentType: contentType,
       Metadata: s3Metadata,
-      // Optional: Add cache control for CDN
-      CacheControl: 'max-age=31536000', // 1 year - audio files are immutable
+      ...(cacheControl ? { CacheControl: cacheControl } : {}),
     });
 
     try {

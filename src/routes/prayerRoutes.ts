@@ -83,11 +83,12 @@ export const prayerRoutes: ServerRoute[] = [
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
         const authUser = request.auth.credentials as UserSafe;
-        const { title, text, category, templateKey } = request.payload as {
+        const { title, text, category, templateKey, voiceId } = request.payload as {
           title: string;
           text: string;
           category?: string;
           templateKey?: string;
+          voiceId?: string;
         };
 
         // Block creation during the post-expiry grace period (anti-abuse),
@@ -103,12 +104,14 @@ export const prayerRoutes: ServerRoute[] = [
           }).code(402); // 402 Payment Required
         }
         
-        // Pin the prayer to the user's current voice. Pinning happens at creation
-        // and never changes from a Settings swap; future voice changes via the
-        // picker menu will re-pin explicitly. Fallback to Samantha matches the
-        // migration's backfill safety net.
-        const selectedVoiceId = authUser.settings?.selectedVoiceId
-          ?? 'com.apple.voice.compact.en-US.Samantha';
+        // Pin the prayer to an explicit voiceId if the client sent one (My
+        // Voice creation), else the user's current voice. Pinning happens at
+        // creation and never changes from a Settings swap; future voice
+        // changes via the picker menu will re-pin explicitly. Fallback to
+        // Samantha matches the migration's backfill safety net.
+        const selectedVoiceId = voiceId
+          || authUser.settings?.selectedVoiceId
+          || 'com.apple.voice.compact.en-US.Samantha';
 
         const newPrayer = await PrayerService.createPrayer({
           userId: authUser.id,
@@ -175,6 +178,7 @@ export const prayerRoutes: ServerRoute[] = [
           text: Joi.string().required().trim(),
           category: Joi.string().optional().trim().allow('', null),
           templateKey: Joi.string().optional().trim(),
+          voiceId: Joi.string().optional().trim().allow('', null),
         }),
         failAction: async (request, h, err) => { throw err; },
       },
