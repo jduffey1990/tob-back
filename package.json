@@ -15,6 +15,7 @@
     "seed:pois": "npm run build && node dist/scripts/seedPrayOnIts.js",
     "seed:templates": "npm run build && node dist/scripts/seedTemplates.js",
     "seed:template-audio": "npm run build && node dist/scripts/generateTemplateAudio.js",
+    "regen:voice-previews": "npm run build && node dist/scripts/regenerateVoicePreviews.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

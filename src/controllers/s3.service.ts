@@ -139,6 +139,45 @@ export class S3Service {
   }
 
   /**
+   * Upload to an explicit key outside the audio/{prayerId}/ layout.
+   * Used for the voice-preview clips under voice-previews/, which are keyed by
+   * a stable filename (not a prayer id) and are re-uploaded when the preview
+   * copy changes. Callers bust client caches by versioning the stored URL.
+   *
+   * @param key - full S3 key, e.g. 'voice-previews/jenny_neural.mp3'
+   * @param body - object bytes
+   * @param contentType - defaults to 'audio/mpeg'
+   * @param cacheControl - defaults to 1 day; pass null to omit the header
+   * @returns S3 key and public URL
+   */
+  public static async uploadToKey(
+    key: string,
+    body: Buffer,
+    contentType: string = 'audio/mpeg',
+    cacheControl: string | null = 'public, max-age=86400'
+  ): Promise<{ s3Key: string; s3Url: string }> {
+    S3Service.ensureInitialized();
+
+    const command = new PutObjectCommand({
+      Bucket: S3Service.bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      ...(cacheControl ? { CacheControl: cacheControl } : {}),
+    });
+
+    try {
+      await S3Service.client.send(command);
+      const s3Url = `https://${S3Service.bucket}.s3.${process.env.AWS_REGION || 'us-east-2'}.amazonaws.com/${key}`;
+      console.log(`✅ Uploaded to S3: ${key} (${body.length} bytes)`);
+      return { s3Key: key, s3Url };
+    } catch (error: any) {
+      console.error(`❌ S3 upload failed:`, error);
+      throw new Error(`S3 upload failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Copy an existing audio object to another prayer's key.
    * Used when a user adds a template whose audio already exists — a
    * CopyObject is near-free versus regenerating the same TTS.
