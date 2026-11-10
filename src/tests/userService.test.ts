@@ -1,6 +1,7 @@
 // src/tests/userService.test.ts
 import { UserService, UserSafe } from '../controllers/userService';
 import { PostgresService } from '../controllers/postgres.service';
+import { ConflictError, ValidationError } from '../errors/AppErrors';
 
 // Mock the PostgresService
 jest.mock('../controllers/postgres.service');
@@ -32,6 +33,10 @@ describe('UserService', () => {
           status: 'active',
           subscription_tier: 'free',
           subscription_expires_at: null,
+          grace_period_ends_at: new Date('2024-02-01'),
+          grace_tier_snapshot: 'pro',
+          settings: { selectedVoiceId: 'voice-abc', playbackRate: 0.8 },
+          trial_voices_remaining: 2,
           deleted_at: null,
           created_at: new Date('2024-01-01'),
           updated_at: new Date('2024-01-01'),
@@ -66,6 +71,10 @@ describe('UserService', () => {
         status: 'active',
         subscriptionTier: 'free',
         subscriptionExpiresAt: null,
+        gracePeriodEndsAt: mockRows[0].grace_period_ends_at,
+        graceTierSnapshot: 'pro',
+        settings: mockRows[0].settings,
+        trialVoicesRemaining: 2,
         deletedAt: null,
         createdAt: mockRows[0].created_at,
         updatedAt: mockRows[0].updated_at,
@@ -93,6 +102,10 @@ describe('UserService', () => {
         status: 'active',
         subscription_tier: 'lifetime',
         subscription_expires_at: null,
+        grace_period_ends_at: new Date('2024-02-01'),
+        grace_tier_snapshot: 'pro',
+        settings: { selectedVoiceId: 'voice-abc', playbackRate: 0.8 },
+        trial_voices_remaining: 2,
         deleted_at: null,
         created_at: new Date('2024-01-01'),
         updated_at: new Date('2024-01-01'),
@@ -114,6 +127,10 @@ describe('UserService', () => {
         status: mockRow.status,
         subscriptionTier: 'lifetime',
         subscriptionExpiresAt: null,
+        gracePeriodEndsAt: mockRow.grace_period_ends_at,
+        graceTierSnapshot: 'pro',
+        settings: mockRow.settings,
+        trialVoicesRemaining: 2,
         deletedAt: null,
         createdAt: mockRow.created_at,
         updatedAt: mockRow.updated_at,
@@ -156,7 +173,7 @@ describe('UserService', () => {
 
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO users'),
-        ['newuser@example.com', 'hashed_password_123', 'New User', 'active']
+        ['newuser@example.com', 'hashed_password_123', 'New User', 'active', 'Christian']
       );
       expect(result.email).toBe('newuser@example.com');
       expect(result.name).toBe('New User');
@@ -188,7 +205,7 @@ describe('UserService', () => {
 
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO users'),
-        ['newuser@example.com', 'hashed_password_123', 'New User', 'active']
+        ['newuser@example.com', 'hashed_password_123', 'New User', 'active', 'Christian']
       );
       expect(result.status).toBe('active');
       expect(result.subscriptionTier).toBe('free'); // DB default
@@ -199,14 +216,16 @@ describe('UserService', () => {
       (duplicateError as any).code = '23505';
       mockDb.query.mockRejectedValue(duplicateError);
 
-      await expect(
-        UserService.createUser({
-          email: 'duplicate@example.com',
-          name: 'Duplicate User',
-          passwordHash: 'hashed_password_123',
-          denomination: 'Christian'
-        })
-      ).rejects.toThrow('duplicate key value violates unique constraint');
+      const attempt = UserService.createUser({
+        email: 'duplicate@example.com',
+        name: 'Duplicate User',
+        passwordHash: 'hashed_password_123',
+        denomination: 'Christian'
+      });
+
+      // 23505 is translated to a typed ConflictError with a user-facing message
+      await expect(attempt).rejects.toBeInstanceOf(ConflictError);
+      await expect(attempt).rejects.toThrow('An account with this email already exists');
     });
 
     it('should rethrow other database errors', async () => {
@@ -347,9 +366,11 @@ describe('UserService', () => {
     });
 
     it('should throw error when no fields to update', async () => {
-      await expect(
-        UserService.updateUser('123e4567-e89b-12d3-a456-426614174000', {})
-      ).rejects.toThrow('No fields to update');
+      const attempt = UserService.updateUser('123e4567-e89b-12d3-a456-426614174000', {});
+
+      await expect(attempt).rejects.toBeInstanceOf(ValidationError);
+      await expect(attempt).rejects.toThrow('At least one field to update is required');
+      expect(mockDb.query).not.toHaveBeenCalled();
     });
   });
 

@@ -2,6 +2,7 @@
 import { PrayerService } from '../controllers/prayerService';
 import { PostgresService } from '../controllers/postgres.service';
 import { Prayer, CreatePrayerInput, UpdatePrayerInput } from '../models/prayer';
+import { NotFoundError } from '../errors';
 
 // Mock the PostgresService
 jest.mock('../controllers/postgres.service');
@@ -24,7 +25,7 @@ describe('PrayerService', () => {
   });
 
   describe('findUserPrayers', () => {
-    it('should return all non-deleted prayers for a user ordered by created_at DESC', async () => {
+    it('should return all prayers for a user ordered by updated_at DESC', async () => {
       const mockRows = [
         {
           id: '123e4567-e89b-12d3-a456-426614174000',
@@ -61,7 +62,7 @@ describe('PrayerService', () => {
         ['user-123']
       );
       expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('ORDER BY created_at DESC'),
+        expect.stringContaining('ORDER BY updated_at DESC'),
         expect.anything()
       );
       expect(result).toHaveLength(2);
@@ -76,7 +77,13 @@ describe('PrayerService', () => {
         lastPlayedAt: new Date('2024-01-15'),
         createdAt: new Date('2024-01-02'),
         updatedAt: new Date('2024-01-15'),
-        deletedAt: null,
+        flockId: null,
+        publishedAt: null,
+        listenCount: 5,
+        voiceId: null,
+        audioUrl: null,
+        voiceName: null,
+        provider: null,
       });
     });
 
@@ -151,7 +158,13 @@ describe('PrayerService', () => {
         lastPlayedAt: new Date('2024-01-15'),
         createdAt: new Date('2024-01-01'),
         updatedAt: new Date('2024-01-15'),
-        deletedAt: null,
+        flockId: null,
+        publishedAt: null,
+        listenCount: 10,
+        voiceId: null,
+        audioUrl: null,
+        voiceName: null,
+        provider: null,
       });
     });
 
@@ -209,7 +222,7 @@ describe('PrayerService', () => {
 
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO prayers'),
-        ['user-123', 'New Prayer', 'This is my new prayer', 'morning', false]
+        ['user-123', 'New Prayer', 'This is my new prayer', 'morning', false, null, null, null]
       );
       expect(result.title).toBe('New Prayer');
       expect(result.text).toBe('This is my new prayer');
@@ -244,7 +257,7 @@ describe('PrayerService', () => {
 
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.anything(),
-        ['user-123', 'Uncategorized Prayer', 'Prayer without category', null, false]
+        ['user-123', 'Uncategorized Prayer', 'Prayer without category', null, false, null, null, null]
       );
       expect(result.category).toBeNull();
     });
@@ -392,9 +405,9 @@ describe('PrayerService', () => {
         title: 'Updated Title',
       };
 
-      await expect(
-        PrayerService.updatePrayer('nonexistent-prayer', 'user-123', updates)
-      ).rejects.toThrow('Prayer not found or unauthorized');
+      const attempt = PrayerService.updatePrayer('nonexistent-prayer', 'user-123', updates);
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError);
+      await expect(attempt).rejects.toThrow('Prayer not found');
     });
 
     it('should throw error when prayer belongs to different user', async () => {
@@ -404,9 +417,9 @@ describe('PrayerService', () => {
         title: 'Updated Title',
       };
 
-      await expect(
-        PrayerService.updatePrayer('prayer-123', 'wrong-user', updates)
-      ).rejects.toThrow('Prayer not found or unauthorized');
+      const attempt = PrayerService.updatePrayer('prayer-123', 'wrong-user', updates);
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError);
+      await expect(attempt).rejects.toThrow('Prayer not found');
     });
 
     it('should update multiple fields at once', async () => {
@@ -451,9 +464,9 @@ describe('PrayerService', () => {
         title: 'Trying to update template',
       };
 
-      await expect(
-        PrayerService.updatePrayer('template-prayer-123', 'user-123', updates)
-      ).rejects.toThrow('Prayer not found or unauthorized');
+      const attempt = PrayerService.updatePrayer('template-prayer-123', 'user-123', updates);
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError);
+      await expect(attempt).rejects.toThrow('Prayer not found');
     });
   });
 

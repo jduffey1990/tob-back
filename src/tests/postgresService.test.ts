@@ -1,6 +1,8 @@
 // src/tests/postgresService.test.ts
 import { PostgresService } from '../controllers/postgres.service';
 import { Pool, PoolClient } from 'pg';
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 
 // Mock the pg module
 jest.mock('pg', () => {
@@ -14,6 +16,12 @@ jest.mock('pg', () => {
     Pool: jest.fn(() => mPool),
   };
 });
+
+// Production/Lambda with a DATABASE_URL uses Neon's Pool (same API as pg's Pool)
+jest.mock('@neondatabase/serverless', () => ({
+  Pool: jest.fn(),
+  neonConfig: {},
+}));
 
 describe('PostgresService', () => {
   let service: PostgresService;
@@ -32,6 +40,7 @@ describe('PostgresService', () => {
     // Reset environment variables
     delete process.env.DATABASE_URL;
     delete process.env.NODE_ENV;
+    delete process.env.LAMBDA_TASK_ROOT;
     delete process.env.PGHOST;
     delete process.env.PGPORT;
     delete process.env.PGUSER;
@@ -46,6 +55,8 @@ describe('PostgresService', () => {
       on: jest.fn(),
     };
     (Pool as jest.MockedClass<typeof Pool>).mockImplementation(() => mockPool);
+    (NeonPool as unknown as jest.Mock).mockImplementation(() => mockPool);
+    delete (neonConfig as any).webSocketConstructor;
   });
 
   afterEach(async () => {
@@ -72,10 +83,13 @@ describe('PostgresService', () => {
 
       service.connect();
 
-      expect(Pool).toHaveBeenCalledWith({
+      // Production uses the Neon serverless Pool with a websocket constructor, not pg's Pool
+      expect(NeonPool).toHaveBeenCalledWith({
         connectionString: 'postgresql://user:pass@host:5432/db',
         ssl: { rejectUnauthorized: false },
       });
+      expect(Pool).not.toHaveBeenCalled();
+      expect(neonConfig.webSocketConstructor).toBe(ws);
       expect(mockPool.on).toHaveBeenCalledWith('error', expect.any(Function));
     });
 
@@ -151,8 +165,15 @@ describe('PostgresService', () => {
       const testError = new Error('Pool error');
       errorHandler(testError);
       
-      // Verify error was logged (console.error is already mocked in beforeEach)
-      expect(console.error).toHaveBeenCalledWith('[Postgres pool error]', testError);
+      // Verify a structured JSON error was logged (console.error is already mocked in beforeEach)
+      expect(console.error).toHaveBeenCalledTimes(1);
+      const logged = JSON.parse((console.error as jest.Mock).mock.calls[0][0]);
+      expect(logged).toMatchObject({
+        level: 'error',
+        type: 'db_pool_error',
+        message: 'Pool error',
+      });
+      expect(logged.stack).toContain('Pool error');
     });
   });
 
@@ -303,10 +324,13 @@ describe('PostgresService', () => {
       await expect(service.runInTransaction(callback)).rejects.toThrow('Callback failed');
 
       expect(mockClient.release).toHaveBeenCalled();
-      expect(console.error).toHaveBeenCalledWith(
-        '[Postgres rollback error]',
-        expect.any(Error)
-      );
+      expect(console.error).toHaveBeenCalledTimes(1);
+      const logged = JSON.parse((console.error as jest.Mock).mock.calls[0][0]);
+      expect(logged).toMatchObject({
+        level: 'error',
+        type: 'db_rollback_error',
+        message: 'Rollback failed',
+      });
     });
 
     it('should execute multiple queries in transaction', async () => {
