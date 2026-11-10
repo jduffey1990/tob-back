@@ -26,6 +26,7 @@ import { appleRoutes } from './routes/appleRoutes'
 import { playlistRoutes } from './routes/playlistRoutes'
 import { flockRoutes } from './routes/flockRoutes'
 import { deviceRoutes } from './routes/deviceRoutes'
+import { appConfigRoutes } from './routes/appConfigRoutes'
 import requestLoggerPlugin from './plugins/requestLogger'
 import rateLimiterPlugin from './plugins/rateLimiter'
 
@@ -60,7 +61,8 @@ const allRoutes = asServerRoutes([
   ...appleRoutes as unknown as ServerRoute[],
   ...playlistRoutes as unknown as ServerRoute[],
   ...flockRoutes as unknown as ServerRoute[],
-  ...deviceRoutes as unknown as ServerRoute[]
+  ...deviceRoutes as unknown as ServerRoute[],
+  ...appConfigRoutes as unknown as ServerRoute[]
 ])
 
 async function buildServer() {

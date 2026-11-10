@@ -97,6 +97,11 @@ resource "aws_lambda_function" "main" {
       APNS_TEAM_ID     = var.apns_team_id
       APNS_BUNDLE_ID   = var.apns_bundle_id
       APNS_ENVIRONMENT = var.apns_environment
+
+      # Force-update floor served by GET /app-config. "0.0.0" blocks nobody.
+      # Raising it locks out every install below it: check the
+      # app_config_check log lines for the installed-version spread first.
+      IOS_MIN_SUPPORTED_VERSION = var.ios_min_supported_version
     }
   }
   

@@ -223,3 +223,18 @@ variable "apns_environment" {
     error_message = "apns_environment must be sandbox, production, or disabled."
   }
 }
+
+# ============================================
+# App version gate (GET /app-config)
+# ============================================
+
+variable "ios_min_supported_version" {
+  description = "Lowest iOS app version allowed to run. Installs below it get a blocking update screen. 0.0.0 disables the gate."
+  type        = string
+  default     = "0.0.0"
+
+  validation {
+    condition     = can(regex("^\\d+(\\.\\d+){0,2}$", var.ios_min_supported_version))
+    error_message = "ios_min_supported_version must look like 6.5.1."
+  }
+}

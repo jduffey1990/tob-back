@@ -12,6 +12,7 @@ import { appleRoutes } from './appleRoutes';
 import { playlistRoutes } from './playlistRoutes'
 import { flockRoutes } from './flockRoutes'
 import { deviceRoutes } from './deviceRoutes'
+import { appConfigRoutes } from './appConfigRoutes'
 
 export default [
   ...userRoutes,
@@ -27,5 +28,6 @@ export default [
   ...appleRoutes,
   ...playlistRoutes,
   ...flockRoutes,
-  ...deviceRoutes
+  ...deviceRoutes,
+  ...appConfigRoutes
 ];
