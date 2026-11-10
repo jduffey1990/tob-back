@@ -12,6 +12,10 @@
 //      installed versions is known BEFORE the floor is raised. Raising the
 //      floor locks people out of the app, so look at the `app_config_check`
 //      lines in CloudWatch first.
+//      The same line carries `tokenSource`: where the client read its auth
+//      token from (keychain, the legacy UserDefaults copy, or none when signed
+//      out). The client may only stop writing the UserDefaults copy once these
+//      lines show tokens arriving from the Keychain.
 //
 // Fails open on purpose: an unset or malformed env var serves 0.0.0, which
 // blocks nobody. A typo in Terraform must never lock every user out.
@@ -20,6 +24,8 @@ import Joi from 'joi';
 
 const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
 const NO_FLOOR = '0.0.0';
+// Must match the values the iOS client sends (AuthTokenSource in the app).
+export const TOKEN_SOURCES = ['keychain', 'defaults', 'none'] as const;
 
 export function resolveMinSupportedVersion(raw: string | undefined): string {
   const value = raw?.trim();
@@ -41,7 +47,11 @@ export const appConfigRoutes: ServerRoute[] = [
     method: 'GET',
     path: '/app-config',
     handler: (request: Request, h: ResponseToolkit) => {
-      const { version, build } = request.query as { version?: string; build?: string };
+      const { version, build, tokenSource } = request.query as {
+        version?: string;
+        build?: string;
+        tokenSource?: string;
+      };
       const minSupportedVersion = resolveMinSupportedVersion(process.env.IOS_MIN_SUPPORTED_VERSION);
 
       console.log(JSON.stringify({
@@ -50,6 +60,8 @@ export const appConfigRoutes: ServerRoute[] = [
         platform: 'ios',
         clientVersion: version ?? null,
         clientBuild: build ?? null,
+        // null means a client older than 6.6.1, which does not report it
+        tokenSource: tokenSource ?? null,
         minSupportedVersion,
         timestamp: new Date().toISOString(),
       }));
@@ -62,6 +74,7 @@ export const appConfigRoutes: ServerRoute[] = [
         query: Joi.object({
           version: Joi.string().pattern(VERSION_PATTERN).optional(),
           build: Joi.string().pattern(/^\d{1,10}$/).optional(),
+          tokenSource: Joi.string().valid(...TOKEN_SOURCES).optional(),
         }),
         failAction: async (request, h, err) => { throw err; },
       },

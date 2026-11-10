@@ -67,6 +67,28 @@ describe('GET /app-config', () => {
     expect(line).toMatchObject({ clientVersion: '6.5.1', clientBuild: '3', platform: 'ios' });
   });
 
+  const checkLine = () => logSpy.mock.calls
+    .map(args => { try { return JSON.parse(args[0]); } catch { return null; } })
+    .find(entry => entry?.event === 'app_config_check');
+
+  it.each(['keychain', 'defaults', 'none'])('logs tokenSource=%s so the Keychain rollout can be measured', async (source) => {
+    const res = await server.inject({ method: 'GET', url: `/app-config?version=6.6.1&build=1&tokenSource=${source}` });
+    expect(res.statusCode).toBe(200);
+    expect(checkLine()).toMatchObject({ clientVersion: '6.6.1', tokenSource: source });
+  });
+
+  it('logs a null tokenSource for clients that do not send one', async () => {
+    const res = await server.inject({ method: 'GET', url: '/app-config?version=6.6.0&build=2' });
+    expect(res.statusCode).toBe(200);
+    expect(checkLine()).toHaveProperty('tokenSource', null);
+  });
+
+  it('rejects an unknown tokenSource instead of logging it', async () => {
+    const res = await server.inject({ method: 'GET', url: '/app-config?tokenSource=%3Cscript%3E' });
+    expect(res.statusCode).toBe(400);
+    expect(checkLine()).toBeUndefined();
+  });
+
   it('rejects a malformed client version instead of logging it', async () => {
     const res = await server.inject({ method: 'GET', url: '/app-config?version=%3Cscript%3E' });
     expect(res.statusCode).toBe(400);
