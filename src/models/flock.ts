@@ -55,3 +55,31 @@ export interface FlockPrayerRequest {
   anonymize: boolean;
   createdAt: Date;
 }
+
+/** A member as the leader sees them on the roster. */
+export interface FlockRosterMember {
+  userId: string;
+  name: string;
+  joinedAt: Date;
+  parentalConsentGiven: boolean;
+}
+
+export interface FlockBlockedMember {
+  userId: string;
+  name: string;
+  blockedAt: Date;
+}
+
+/** Everything the report email needs, captured at report time. */
+export interface FlockPrayerReport {
+  id: string;
+  flockName: string;
+  leaderName: string;
+  reporterName: string;
+  prayerId: string;
+  prayerTitle: string;
+  prayerText: string;
+  reason: string | null;
+  /** false when this member had already reported this prayer. */
+  isNew: boolean;
+}

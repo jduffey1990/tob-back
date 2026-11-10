@@ -1059,6 +1059,62 @@ export class EmailService {
     await this.sendTransactional({ to: toEmail, subject: `"${flockName}" is paused`, html, text });
   }
 
+  /**
+   * Alert the app owner that a member reported a flock prayer. Goes to
+   * ADMIN_STATS_EMAIL (same inbox as the daily stats); skipped with a log
+   * line when unset, since the report row is already saved either way.
+   * Every interpolated value is user-written, so all of it is HTML-escaped.
+   */
+  async sendFlockPrayerReportEmail(report: {
+    id: string;
+    flockName: string;
+    leaderName: string;
+    reporterName: string;
+    prayerId: string;
+    prayerTitle: string;
+    prayerText: string;
+    reason: string | null;
+  }): Promise<void> {
+    const adminEmail = process.env.ADMIN_STATS_EMAIL;
+    if (!adminEmail) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'flock_report_email_skipped',
+        reason: 'ADMIN_STATS_EMAIL not set',
+        reportId: report.id,
+      }));
+      return;
+    }
+
+    const esc = (value: string) => value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    const reason = report.reason || '(no reason given)';
+    const html = this.createTransactionalHtml({
+      headline: 'A flock prayer was reported',
+      paragraphs: [
+        `<strong>${esc(report.reporterName)}</strong> reported a prayer in <strong>"${esc(report.flockName)}"</strong> (leader: ${esc(report.leaderName)}).`,
+        `<strong>Reason:</strong> ${esc(reason)}`,
+        `<strong>Prayer:</strong> ${esc(report.prayerTitle)}`,
+        `<span style="white-space:pre-wrap;">${esc(report.prayerText)}</span>`,
+        `Report id: ${esc(report.id)}<br>Prayer id: ${esc(report.prayerId)}`,
+      ],
+    });
+    const text = [
+      `${report.reporterName} reported a prayer in "${report.flockName}" (leader: ${report.leaderName}).`,
+      `Reason: ${reason}`,
+      `Prayer: ${report.prayerTitle}`,
+      report.prayerText,
+      `Report id: ${report.id}`,
+      `Prayer id: ${report.prayerId}`,
+    ].join('\n\n');
+    await this.sendTransactional({ to: adminEmail, subject: 'Flock prayer reported', html, text });
+  }
+
   /** Sent to each member when a previously-suspended flock is resumed. */
   async sendFlockResumedEmail(toEmail: string, flockName: string, leaderName: string): Promise<void> {
     const html = this.createTransactionalHtml({

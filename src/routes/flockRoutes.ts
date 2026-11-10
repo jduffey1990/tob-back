@@ -10,6 +10,8 @@ import { PrayOnItService } from '../controllers/prayOnItService';
 import { PrayOnItCategory } from '../models/prayOnItItem';
 import { NotificationService } from '../controllers/notificationService';
 import { GracePeriodService } from '../controllers/gracePeriodService';
+import { EmailService } from '../controllers/email.service';
+import { handleRouteError } from '../errors';
 import type { UserSafe } from '../models/user';
 
 // Leader-tier resolution lives in GracePeriodService so a user inside their
@@ -206,7 +208,14 @@ export const flockRoutes: ServerRoute[] = [
     path: '/flocks/prayers/{id}',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
+        const authUser = request.auth.credentials as UserSafe;
         const { id } = request.params;
+
+        // Leader or current member only. Same 404 as a missing prayer, so a
+        // removed/blocked member (or anyone holding a stray id) learns nothing.
+        if (!(await FlockService.canAccessFlockPrayer(id, authUser.id))) {
+          return h.response({ error: 'Flock prayer not found' }).code(404);
+        }
 
         const prayer = await PrayerService.getFlockPrayerById(id);
         if (!prayer) {
@@ -345,7 +354,14 @@ export const flockRoutes: ServerRoute[] = [
     path: '/flocks/prayers/{id}/listen',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
+        const authUser = request.auth.credentials as UserSafe;
         const { id } = request.params;
+
+        // Only the flock's own people can move its listen count.
+        if (!(await FlockService.canAccessFlockPrayer(id, authUser.id))) {
+          return h.response({ error: 'Flock prayer not found' }).code(404);
+        }
+
         const prayer = await PrayerService.recordFlockListen(id);
         return h.response(prayer).code(200);
       } catch (error: any) {
@@ -482,12 +498,16 @@ export const flockRoutes: ServerRoute[] = [
       auth: 'jwt',
       validate: {
         payload: Joi.object({
+          // Caps sit above anything a Pray On It item can hold (notes max 200,
+          // focus max 100, 25 items on the top tier), so a real share never
+          // trips them; they only bound a scripted client. Per-user frequency
+          // is bounded separately in plugins/rateLimiter.ts.
           items: Joi.array().items(Joi.object({
             name: Joi.string().required().max(255),
-            category: Joi.string().optional().allow('', null),
-            prayerFocus: Joi.string().optional().allow('', null),
-            notes: Joi.string().optional().allow('', null),
-          })).min(1).required(),
+            category: Joi.string().optional().max(100).allow('', null),
+            prayerFocus: Joi.string().optional().max(100).allow('', null),
+            notes: Joi.string().optional().max(1000).allow('', null),
+          })).min(1).max(50).required(),
           anonymize: Joi.boolean().optional().default(false),
         }),
         failAction: async (request, h, err) => { throw err; },
@@ -662,10 +682,12 @@ export const flockRoutes: ServerRoute[] = [
     path: '/flocks/lookup',
     handler: async (request: Request, h: ResponseToolkit) => {
       try {
+        const authUser = request.auth.credentials as UserSafe;
         const { qrCodeIdentifier } = request.payload as { qrCodeIdentifier: string };
 
         const flock = await FlockService.getFlockByQRCode(qrCodeIdentifier);
-        if (!flock) {
+        // A blocked user sees the same "not found" as a bad code (quiet block).
+        if (!flock || await FlockService.isBlocked(flock.id, authUser.id)) {
           return h.response({ error: 'Flock not found' }).code(404);
         }
 
@@ -689,6 +711,183 @@ export const flockRoutes: ServerRoute[] = [
       },
       description: 'Look up flock info by QR code identifier before joining',
       tags: ['api', 'flocks']
+    }
+  },
+
+  // ============================================
+  // GET /flocks/mine/members - Leader's roster (members + blocked)
+  // ============================================
+  {
+    method: 'GET',
+    path: '/flocks/mine/members',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const roster = await FlockService.getRoster(authUser.id);
+        return h.response(roster).code(200);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Get the members of the leader\'s flock and the users they have blocked',
+      tags: ['api', 'flocks', 'moderation']
+    }
+  },
+
+  // ============================================
+  // DELETE /flocks/mine/members/{userId} - Leader removes a member
+  // ============================================
+  {
+    method: 'DELETE',
+    path: '/flocks/mine/members/{userId}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { userId } = request.params;
+        await FlockService.removeMember(authUser.id, userId);
+        return h.response({ success: true }).code(200);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          userId: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Remove a member from the leader\'s flock (they can rejoin by QR)',
+      tags: ['api', 'flocks', 'moderation']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/mine/blocks - Leader blocks a user
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/mine/blocks',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { userId } = request.payload as { userId: string };
+        await FlockService.blockMember(authUser.id, userId);
+        return h.response({ success: true }).code(200);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        payload: Joi.object({
+          userId: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Block a user from the leader\'s flock (removes them and prevents rejoining)',
+      tags: ['api', 'flocks', 'moderation']
+    }
+  },
+
+  // ============================================
+  // DELETE /flocks/mine/blocks/{userId} - Leader lifts a block
+  // ============================================
+  {
+    method: 'DELETE',
+    path: '/flocks/mine/blocks/{userId}',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { userId } = request.params;
+        await FlockService.unblockMember(authUser.id, userId);
+        return h.response({ success: true }).code(200);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          userId: Joi.string().uuid().required(),
+        }),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Unblock a user (they must rescan the QR code to rejoin)',
+      tags: ['api', 'flocks', 'moderation']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/mine/qr/reset - Leader invalidates the QR code
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/mine/qr/reset',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const flock = await FlockService.resetQRCode(authUser.id);
+        return h.response({
+          qrCodeIdentifier: flock.qrCodeIdentifier,
+          flockName: flock.name,
+          leaderName: authUser.name,
+        }).code(200);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      description: 'Issue a new QR code for the leader\'s flock; the old code stops working',
+      tags: ['api', 'flocks', 'moderation']
+    }
+  },
+
+  // ============================================
+  // POST /flocks/prayers/{id}/report - Member reports a flock prayer
+  // ============================================
+  {
+    method: 'POST',
+    path: '/flocks/prayers/{id}/report',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      try {
+        const authUser = request.auth.credentials as UserSafe;
+        const { id } = request.params;
+        const { reason } = (request.payload ?? {}) as { reason?: string | null };
+
+        const report = await FlockService.reportPrayer(id, authUser.id, reason?.trim() || null);
+
+        // The row is the record; the email is the alert. Awaited (not
+        // fire-and-forget) for the same Lambda-freeze reason as the push
+        // fan-out above, and sendFlockPrayerReportEmail never throws.
+        if (report.isNew) {
+          await new EmailService().sendFlockPrayerReportEmail(report);
+        }
+
+        return h.response({ success: true }).code(201);
+      } catch (error) {
+        return handleRouteError(error, h);
+      }
+    },
+    options: {
+      auth: 'jwt',
+      validate: {
+        params: Joi.object({
+          id: Joi.string().uuid().required(),
+        }),
+        payload: Joi.object({
+          reason: Joi.string().optional().max(500).trim().allow('', null),
+        }).optional().allow(null),
+        failAction: async (request, h, err) => { throw err; },
+      },
+      description: 'Report a flock prayer as offensive (current members only)',
+      tags: ['api', 'flocks', 'moderation']
     }
   },
 ];

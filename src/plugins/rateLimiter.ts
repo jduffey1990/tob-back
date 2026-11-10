@@ -150,6 +150,22 @@ const USER_RULES: UserRateLimitRule[] = [
     routePath: '/prayers/{id}/recording',
     user: { limit: 20, windowSeconds: HOUR },
   },
+  {
+    // Member -> leader prayer requests. One call fans out to every flock the
+    // member follows and nothing else meters it, so without this a single
+    // member can flood a leader's inbox. 10 shares an hour is far above real
+    // use.
+    method: 'post',
+    routePath: '/flocks/prayer-requests',
+    user: { limit: 10, windowSeconds: HOUR },
+  },
+  {
+    // Each new report sends an email. Repeat reports of the same prayer are
+    // already no-ops; this bounds someone reporting a whole feed in a loop.
+    method: 'post',
+    routePath: '/flocks/prayers/{id}/report',
+    user: { limit: 10, windowSeconds: HOUR },
+  },
 ];
 
 /**
