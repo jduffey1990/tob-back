@@ -40,8 +40,10 @@ resource "aws_lambda_function" "main" {
   # Blast-radius cap. Unbounded, a burst against the unauthenticated routes
   # scales Lambda out until the account limit, and the bill follows. 50 is far
   # above real traffic; raise it before a launch push rather than after.
-  # Note this RESERVES capacity from the account pool -- requests past it get
-  # 429 rather than queueing. The TTS worker keeps its own separate cap.
+  # Note this RESERVES capacity from the account pool -- requests past it are
+  # throttled rather than queued, and API Gateway returns those as 503. The
+  # stage throttle below is sized to keep bursts under this cap. The TTS
+  # worker keeps its own separate cap.
   reserved_concurrent_executions = 50
 
   environment {
@@ -301,8 +303,14 @@ resource "aws_apigatewayv2_stage" "default" {
   }
 
   default_route_settings {
-    throttling_burst_limit = 5000  # Max concurrent requests
-    throttling_rate_limit  = 2000  # Requests per second
+    # Token bucket shared by the whole stage (not per IP). Past it the gateway
+    # answers 429 without invoking Lambda. Sized against the API Lambda's
+    # reserved concurrency of 50: a cold burst admits 30 at once plus 10 more
+    # during the ~1 s init, so 40 instances. Without this, a secret-path
+    # scanner fills all 50 and the overflow surfaces as 503s (2026-11-11).
+    # Raise these together with reserved_concurrent_executions.
+    throttling_burst_limit = 30 # Bucket size: requests admitted at once
+    throttling_rate_limit  = 10 # Tokens refilled per second (sustained rps)
   }
   
   tags = local.common_tags
