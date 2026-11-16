@@ -38,13 +38,19 @@ resource "aws_lambda_function" "main" {
   timeout     = var.lambda_timeout
 
   # Blast-radius cap. Unbounded, a burst against the unauthenticated routes
-  # scales Lambda out until the account limit, and the bill follows. 50 is far
-  # above real traffic; raise it before a launch push rather than after.
+  # scales Lambda out until the account limit, and the bill follows.
   # Note this RESERVES capacity from the account pool -- requests past it are
   # throttled rather than queued, and API Gateway returns those as 503. The
-  # stage throttle below is sized to keep bursts under this cap. The TTS
-  # worker keeps its own separate cap.
-  reserved_concurrent_executions = 50
+  # stage throttle below bounds sustained rate but cannot stop a sub-second
+  # burst, so this cap is what absorbs one: on 2026-11-16 a secret-path scanner
+  # sent 92 requests in ~1 s straight past the throttle (zero 429s) and the 42
+  # past the old cap of 50 became 503s. Every burst request cold-starts its own
+  # instance (~0.9 s init), so the cap must cover the burst count, not rps.
+  # Raising it takes from the account's unreserved pool (400 total, AWS keeps
+  # at least 100 unreserved). Each instance opens its own direct Neon pool, so
+  # before real traffic nears this cap, move DATABASE_URL to Neon's pooler.
+  # The TTS worker keeps its own separate cap.
+  reserved_concurrent_executions = 150
 
   environment {
     variables = {
@@ -304,11 +310,11 @@ resource "aws_apigatewayv2_stage" "default" {
 
   default_route_settings {
     # Token bucket shared by the whole stage (not per IP). Past it the gateway
-    # answers 429 without invoking Lambda. Sized against the API Lambda's
-    # reserved concurrency of 50: a cold burst admits 30 at once plus 10 more
-    # during the ~1 s init, so 40 instances. Without this, a secret-path
-    # scanner fills all 50 and the overflow surfaces as 503s (2026-11-11).
-    # Raise these together with reserved_concurrent_executions.
+    # answers 429 without invoking Lambda. Enforcement is best-effort across
+    # API Gateway nodes: it bounds sustained rate (and so the bill), but a
+    # sub-second burst gets through far above the bucket size (92 in ~1 s on
+    # 2026-11-16, zero 429s). Burst absorption is the job of the API Lambda's
+    # reserved_concurrent_executions, not this block.
     throttling_burst_limit = 30 # Bucket size: requests admitted at once
     throttling_rate_limit  = 10 # Tokens refilled per second (sustained rps)
   }
